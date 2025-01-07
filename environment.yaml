@@ -1,0 +1,13 @@
+name: fact
+channels:
+  - defaults
+  - conda-forge
+  - pytorch
+dependencies:
+  - python=3.9
+  - pip
+  - pip:
+    - gym
+    - numpy
+    - matplotlib
+    - torch>=1.10,<3.0
