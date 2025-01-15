@@ -150,6 +150,7 @@ def run(num_people, max_ep_len, memory_capacity, args, seed):
         seed=seed,
         state_mode=args.state_mode,
         p=[0.8, 0.8, 0.8, 0.8, 0.8],
+        reward_type=args.reward_type, # add arg for reward type
     )
 
     num_actions = env.action_space.n
@@ -300,6 +301,19 @@ def main():
         required=False,
         help="Number of Experiments\n",
     )
+
+    # add argument for reward type
+    prs.add_argument(
+        "-rt", "--reward_type",
+        type=str,
+        default="nsw",
+        choices=["nsw", "utilitarian", "rawlsian", "egalitarian", "gini"],
+        help="Select the reward function to use: 'nsw' for Nash Social Welfare, "
+            "'utilitarian' for Utilitarian Welfare, 'rawlsian' for Rawlsian Welfare, "
+            "'egalitarian' for Egalitarian Welfare, "
+            "or 'gini' for Gini Coefficient based Social Welfare."
+    )
+
     args = prs.parse_args()
 
     num_people = 5
@@ -336,6 +350,8 @@ def save_plot_avg(
         + str(num_people)
         + "-cf"
         + str(args.counterfactual)
+        + "-rt" 
+        + args.reward_type # show reward type in figure name
         + "-"
         + current_time
         + ".csv"
@@ -401,7 +417,21 @@ def save_plot_avg(
     ci = 1.96 * std_donuts / np.sqrt(num_exps)
     ax[1].fill_between(x, (mean_donuts - ci), (mean_donuts + ci), alpha=0.3)
 
-    ax[0].set_ylabel("Sum of NSW")
+    # ax[0].set_ylabel("Sum of NSW")
+    # print reward type in figure
+    if args.reward_type == 'nsw':
+        ylabel_text = "Sum of Nash Social Welfare"
+    elif args.reward_type == 'utilitarian':
+        ylabel_text = "Sum of Utilitarian Welfare"
+    elif args.reward_type == 'rawlsian':
+        ylabel_text = "Sum of Rawlsian Welfare"
+    elif args.reward_type == 'egalitarian':
+        ylabel_text = "Sum of Egalitarian Welfare"
+    elif args.reward_type == 'gini':
+        ylabel_text = "Sum of Gini Coefficient Welfare"
+
+    ax[0].set_ylabel(ylabel_text)
+
     ax[1].set_ylabel("Number of allocated donuts")
 
     title = args.state_mode
@@ -413,11 +443,13 @@ def save_plot_avg(
         + args.state_mode
         + "-cf"
         + str(args.counterfactual)
+        + "-rt" 
+        + args.reward_type # show reward type in figure name
         + "-"
         + current_time
         + ".png"
     )
-    plt.show()
+    # plt.show()
 
 
 if __name__ == "__main__":

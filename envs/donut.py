@@ -4,7 +4,7 @@ import numpy as np
 
 
 class Donut(gym.Env):
-    def __init__(self, people, episode_length, seed, state_mode="full", p=None):
+    def __init__(self, people, episode_length, seed, state_mode="full", p=None, reward_type='nsw'): # add argument for reward type
         # full: number of donuts for each person so far as a list [d1, d2, ...]
         # compact: full but as one number
         # binary: binary state of full
@@ -48,6 +48,8 @@ class Donut(gym.Env):
             self.stochastic = True
         self.reset(seed)
 
+        self.reward_type = reward_type # add reward type
+
     def binary_state(self, s):
         zero_fill = int(np.ceil(np.log2(self.episode_length)))
         ans = ""
@@ -74,6 +76,38 @@ class Donut(gym.Env):
         for i in range(len(obs)):
             nsw_reward += np.log(float(obs[i] + 1) + self.nsw_lambda)
         return nsw_reward
+
+    # add 4 more reward functions
+    def utilitarian_reward(self, obs):
+        """Calculate the total sum of rewards across all agents."""
+        return sum(obs)
+
+    def rawlsian_reward(self, obs):
+        """Calculate the reward based on the minimum reward among all agents."""
+        return min(obs)
+
+    def egalitarian_reward(self, obs):
+        """Calculate the reward based on minimizing the differences from the mean."""
+        mean_reward = sum(obs) / len(obs)
+        diff_sum = sum(abs(x - mean_reward) for x in obs)
+        return -diff_sum
+
+    def gini_coefficient(self, values):
+        """ Calculate the Gini coefficient of a list of values. Based on: http://www.statsdirect.com/help/default.htm#nonparametric_methods/gini.htm"""
+        values = np.array(values, dtype=np.float64)
+        if np.amin(values) < 0:
+            values -= np.amin(values)
+        values += 0.0000001
+        sorted_values = np.sort(values)
+        index = np.arange(1, values.size + 1)
+        n = values.size
+        gini = (np.sum((2 * index - n - 1) * sorted_values)) / (n * np.sum(sorted_values))
+        return gini
+
+    def gini_reward(self, obs):
+        """Calculate the reward to minimize the Gini coefficient."""
+        gini_index = self.gini_coefficient(obs)
+        return 1 - gini_index  # Higher reward for lower Gini coefficient
 
     def step(self, action):
         self.curr_episode += 1
@@ -103,7 +137,18 @@ class Donut(gym.Env):
                     obs[i] = 0
 
         self.last_obs = obs.copy()
-        reward = self.nsw_reward(self.donuts.copy())
+        # reward = self.nsw_reward(self.donuts.copy())
+        # calculate reward based on 5 reward types
+        if self.reward_type == 'nsw':
+            reward = self.nsw_reward(self.donuts.copy())
+        elif self.reward_type == 'utilitarian':
+            reward = self.utilitarian_reward(self.donuts.copy())
+        elif self.reward_type == 'rawlsian':
+            reward = self.rawlsian_reward(self.donuts.copy())
+        elif self.reward_type == 'egalitarian':
+            reward = self.egalitarian_reward(self.donuts.copy())
+        elif self.reward_type == 'gini':
+            reward = self.gini_reward(self.donuts.copy())
 
         obs = self.last_obs
         if drop:
@@ -125,14 +170,14 @@ class Donut(gym.Env):
             out_memory = self.binary_state(self.memory.copy())
             out_state = obs.copy()
 
-        elif self.state_mode == "reset-binary":
+        elif self.state_mode == "reset-binary": # min mode in paper
             mn = min(self.memory)
             for i in range(self.people):
                 self.memory[i] = self.memory[i] - mn
             out_memory = self.binary_state(self.memory.copy())
             out_state = obs.copy()
 
-        elif self.state_mode == "equal-binary":
+        elif self.state_mode == "equal-binary": # reset mode in paper
             mn = min(self.memory)
             mx = max(self.memory)
             if mn == mx:
