@@ -269,10 +269,16 @@ def main():
     )
     args = prs.parse_args()
 
-    num_people = 5 if args.env_type == "donut" else 4
     seed = 2024
-    max_ep_len = 100
-    memory_capacity = 5000
+    if args.env_type == "donut":
+        num_people = 5
+        max_ep_len = 100
+        memory_capacity = 5000
+    else:
+        num_people = 4
+        max_ep_len = 40
+        memory_capacity = 1000
+
 
     if args.counterfactual:
         args.batch_size = args.batch_size * np.power(2, num_people)
@@ -291,7 +297,7 @@ def main():
 
 
 def save_plot_avg(
-    reward_list_all, donuts_list_all, args, num_exps, num_people, max_ep_len, env_type
+    reward_list_all, donuts_list_all, args, num_exps, num_people, max_ep_len,
 ):
 
     pathprefix = (
@@ -325,7 +331,7 @@ def save_plot_avg(
         for i in range(num_exps):
             csv_writer.writerow(reward_list_all[i])
             csv_writer.writerow([""])
-            if env_type == "donut":
+            if args.env_type == "donut":
                 csv_writer.writerow(donuts_list_all[i])
             else:
                 csv_writer.writerow(" ")
