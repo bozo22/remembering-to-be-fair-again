@@ -25,6 +25,9 @@ def run(num_people, max_ep_len, memory_capacity, args, seed):
             seed=seed,
             state_mode=args.state_mode,
             p=[0.8, 0.8, 0.8, 0.8, 0.8],
+            distribution=args.distribution,
+            d_param1=args.d_param1,
+            d_param2=args.d_param2,
         )
     else:
         env = Lending(
@@ -267,6 +270,38 @@ def main():
         required=True,
         help="Network Type\n",
     )
+    prs.add_argument(
+        "-dis",
+        dest="distribution",
+        type=str,
+        default=None,
+        required=False,
+        help="Distribution (\"logistic\", \"bell\", \"uniform-iterval\")\n",
+    )
+    prs.add_argument(
+        "-d1",
+        dest="d_param1",
+        type=str,
+        default=None,
+        required=False,
+        help="Distribution parameter 1, comma-separated list of numbers\n",
+    )
+    prs.add_argument(
+        "-d2",
+        dest="d_param2",
+        type=str,
+        default=None,
+        required=False,
+        help="Distribution parameter 2, comma-separated list of numbers\n",
+    )
+    prs.add_argument(
+        "-des",
+        dest="description",
+        type=str,
+        default="",
+        required=False,
+        help="Output file description\n",
+    )
     args = prs.parse_args()
 
     num_people = 5 if args.env_type == "donut" else 4
@@ -277,6 +312,10 @@ def main():
     if args.counterfactual:
         args.batch_size = args.batch_size * np.power(2, num_people)
         memory_capacity *= np.power(2, num_people - 1)
+
+    if args.d_param1 and args.d_param2:
+        args.d_param1 = [float(x) for x in args.d_param1.split(",")]
+        args.d_param2 = [float(x) for x in args.d_param2.split(",")]
 
     num_exps = args.num_exps
     reward_list = []
@@ -299,6 +338,8 @@ def save_plot_avg(
     )
     rewards_dataset_paths = (
         pathprefix
+        + "-des"
+        + str(args.description)
         + "-people"
         + str(num_people)
         + "-cf"
@@ -392,6 +433,8 @@ def save_plot_avg(
         + args.net_type
         + "-DQN"
         + args.state_mode
+        + "-des"
+        + str(args.description)
         + "-cf"
         + str(args.counterfactual)
         + "-"

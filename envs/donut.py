@@ -4,7 +4,7 @@ import numpy as np
 
 
 class Donut(gym.Env):
-    def __init__(self, people, episode_length, seed, state_mode="full", p=None):
+    def __init__(self, people, episode_length, seed, state_mode="full", p=None, distribution=None, d_param1=None, d_param2=None):
         # full: number of donuts for each person so far as a list [d1, d2, ...]
         # compact: full but as one number
         # binary: binary state of full
@@ -18,6 +18,9 @@ class Donut(gym.Env):
         self.observation_space = gym.spaces.MultiBinary(
             np.power(2, self.people), seed=self.seed
         )
+        self.distribution = distribution
+        self.d_param1 = d_param1
+        self.d_param2 = d_param2
 
         self.memory_space = gym.spaces.MultiBinary(
             np.power(self.episode_length + 1, self.people), seed=self.seed
@@ -41,6 +44,7 @@ class Donut(gym.Env):
         self.last_obs = self.default_obs
 
         if p is None:
+            
             self.prob = [1.0 for _ in range(self.people)]
             self.stochastic = False
         else:
@@ -68,6 +72,19 @@ class Donut(gym.Env):
             ans += s[i] * curr_p
             curr_p *= p
         return ans
+    
+    def logistic_prob(self, t, t_mid, steepness):
+        return 1.0 / (1.0 + np.exp(-steepness * (t - t_mid)))
+    
+    def bell_prob(self, t, mu, sigma):
+        return np.exp(-((t - mu)**2) / (2.0 * sigma**2))
+    
+    def uniform_interval_prob(self, t, start, end):
+        if t >= start and t <= end:
+            prob = 1.0
+        else:
+            prob = 0.0
+        return prob
 
     def nsw_reward(self, obs):
         nsw_reward = 0
@@ -77,12 +94,9 @@ class Donut(gym.Env):
 
     def step(self, action):
         self.curr_episode += 1
-        done = False
         obs = self.last_obs.copy()
         drop = True
-
-        if self.curr_episode >= self.episode_length:
-            done = True
+        done = (self.curr_episode >= self.episode_length)
 
         if not self.stochastic:
             drop = False
@@ -97,6 +111,24 @@ class Donut(gym.Env):
 
             for i in range(self.people):
                 p = random.random()
+                if self.distribution == "logistic":
+                    self.prob[i] = self.logistic_prob(
+                        self.curr_episode,
+                        self.d_param1[i], # middle point
+                        self.d_param2[i], # steepness
+                        )
+                elif self.distribution == "bell":
+                    self.prob[i] = self.bell_prob(
+                        self.curr_episode, 
+                        self.d_param1[i], # mean
+                        self.d_param2[i], # std
+                    )
+                elif self.distribution == "uniform-interval":
+                    self.prob[i] = self.uniform_interval_prob(
+                        self.curr_episode, 
+                        self.d_param1[i],  # start
+                        self.d_param2[i],  # end
+                    )
                 if p <= self.prob[i]:
                     obs[i] = 1
                 else:
@@ -248,3 +280,6 @@ class Donut(gym.Env):
         else:
             print("Unknown State Mode")
         return out_state, out_memory
+
+
+    

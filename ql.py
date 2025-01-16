@@ -170,10 +170,11 @@ if __name__ == '__main__':
     reward_data_all = []
     donuts_data_all = []
     x = 0
+    p = [0.6, 0.8, 1.0]
 
     seed = 2024
     random.seed(seed)
-    fair_env = Donut(people=num_people, episode_length=max_ep_len, seed=seed,state_mode=args.state_mode, p=[0.8, 0.8, 0.8])
+    fair_env = Donut(people=num_people, episode_length=max_ep_len, seed=seed,state_mode=args.state_mode, p=p)
     reward_t, donuts_t = run_Q_learning(episodes=args.episodes, alpha=args.alpha, epsilon=args.epsilon, gamma=args.gamma, dim_factor=args.dim_factor, args=args)
 
     with open(rewards_dataset_paths[0], 'w', newline='') as csv_file:
@@ -220,7 +221,7 @@ if __name__ == '__main__':
 
     ax[1].fill_between(x, (donut_means - ci), (donut_means + ci), alpha=.3)
 
-    plt.savefig("./donut/reward" + args.state_mode + "-cf" + str(args.counterfactual) + "-" + current_time + ".png")
+    plt.savefig("./donut/reward" + args.state_mode + "-cf" + str(args.counterfactual) + "p-costant-dif" + "-" + current_time + ".png")
     plt.show()
 
 
