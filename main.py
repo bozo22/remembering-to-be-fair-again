@@ -276,7 +276,8 @@ def main():
         type=str,
         default=None,
         required=False,
-        help="Distribution (\"logistic\", \"bell\", \"uniform-iterval\")\n",
+        choices=["logistic", "bell", "uniform-interval"],
+        help="Distribution\n",
     )
     prs.add_argument(
         "-d1",
@@ -306,8 +307,8 @@ def main():
 
     num_people = 5 if args.env_type == "donut" else 4
     seed = 2024
-    max_ep_len = 100
-    memory_capacity = 5000
+    max_ep_len = 100 if args.env_type == "donut" else 40
+    memory_capacity = 5000 if args.env_type == "donut" else 1000
 
     if args.counterfactual:
         args.batch_size = args.batch_size * np.power(2, num_people)
@@ -323,14 +324,14 @@ def main():
     for i in range(num_exps):
         random.seed(seed)
         np.random.seed(seed + i + 1)
-        reward_t, donut_t = run(num_people, max_ep_len, memory_capacity, args, seed + i)
+        reward_t, donut_t = run(num_people, max_ep_len, memory_capacity, args, seed + i) # what if we are running donut?
         reward_list.append(reward_t)
-        donut_list.append(donut_t)
+        donut_list.append(donut_t) # what if we are running donut?
     save_plot_avg(reward_list, donut_list, args, num_exps, num_people, max_ep_len)
 
 
 def save_plot_avg(
-    reward_list_all, donuts_list_all, args, num_exps, num_people, max_ep_len, env_type
+    reward_list_all, donuts_list_all, args, num_exps, num_people, max_ep_len
 ):
 
     pathprefix = (
@@ -366,7 +367,7 @@ def save_plot_avg(
         for i in range(num_exps):
             csv_writer.writerow(reward_list_all[i])
             csv_writer.writerow([""])
-            if env_type == "donut":
+            if args.env_type == "donut":
                 csv_writer.writerow(donuts_list_all[i])
             else:
                 csv_writer.writerow(" ")

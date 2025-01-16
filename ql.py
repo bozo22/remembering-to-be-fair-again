@@ -39,6 +39,7 @@ def counterfactual_Q_update(fair_env, Q, state, action, prev_reward, next_state,
         max_action = argmax_greedy(Q[next_state, next_memory])
         Q[state, memory, action] = Q[state, memory, action] + args.alpha * (
                     reward + args.gamma * Q[next_state, next_memory, max_action] - Q[state, memory, action])
+        
 
 
 def run_Q_learning(episodes: int, alpha: float, epsilon: float, gamma: float, dim_factor: float, args):
@@ -69,6 +70,7 @@ def run_Q_learning(episodes: int, alpha: float, epsilon: float, gamma: float, di
         cum_reward = 0
         while not done:
             epsilon = visited[state, memory]
+            print("State: ", state)
             avg.append(epsilon)
             if np.random.uniform(0, 1) < epsilon:
                 action = np.random.randint(0, fair_env.people)

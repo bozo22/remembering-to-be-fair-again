@@ -11,11 +11,11 @@ class Lending(gym.Env):
         self.state_mode = state_mode
         self.observation_space = gym.spaces.MultiBinary(np.power(2, self.people), seed=self.seed)
 
-        self.default_credit = [4, 4, 7, 7]
+        self.default_credit = [4, 4, 7, 7] # 4 people, 2 subgroups
         self.credit = self.default_credit.copy()
 
-        self.loans = [0 for _ in range(2)]
-        self.memory = [0 for _ in range(2)]
+        self.loans = [0 for _ in range(2)] # 2 subgroups
+        self.memory = [0 for _ in range(2)] # 2 subgroups
         self.success = self.episode_length
 
         self.curr_episode = 0
@@ -46,18 +46,19 @@ class Lending(gym.Env):
         return -1.0 * ans
 
     def step(self, action):
+        # possible actions are 0, 1, 2, 3
         self.curr_episode += 1
         done = False
+        wrong_action = not self.last_obs[action] # check if person applied for loan
         obs = self.last_obs.copy()
 
         if self.curr_episode >= self.episode_length:
             done = True
         subg = 0
-        if action > 1:
+        if action > 1: # hard coded for 2 subgroups of size two each
             subg = 1
-
-        wrong_action = False
-        if self.last_obs[action]:
+ 
+        if not wrong_action:
             self.loans[subg] += 1
             self.memory[subg] += 1
             repayment = random.random()
@@ -67,8 +68,7 @@ class Lending(gym.Env):
             else:
                 self.success -= 1
                 self.credit[action] = max(self.credit[action] - 1, 0)
-        else:
-            wrong_action = True
+
         for i in range(self.people):
             p = random.random()
             if p <= self.prob[i]:
