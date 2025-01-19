@@ -9,7 +9,6 @@ from envs.lending import Lending
 import argparse
 from datetime import datetime
 import csv
-from itertools import product
 from dqn import DQN
 
 matplotlib.use("Agg")
@@ -273,16 +272,19 @@ def main():
     if args.env_type == "donut":
         num_people = 5
         max_ep_len = 100
-        memory_capacity = 5000
+        memory_capacity = 400
+        if args.counterfactual:
+            memory_capacity = 6400
+        elif args.net_type == "rnn":
+            memory_capacity = 1000
     else:
         num_people = 4
         max_ep_len = 40
         memory_capacity = 1000
 
-
-    if args.counterfactual:
-        args.batch_size = args.batch_size * np.power(2, num_people)
-        memory_capacity *= np.power(2, num_people - 1)
+    # if args.counterfactual:
+    #     args.batch_size = args.batch_size * np.power(2, num_people)
+    #     memory_capacity *= np.power(2, num_people - 1)
 
     num_exps = args.num_exps
     reward_list = []
@@ -297,44 +299,36 @@ def main():
 
 
 def save_plot_avg(
-    reward_list_all, donuts_list_all, args, num_exps, num_people, max_ep_len,
+    reward_list_all,
+    donuts_list_all,
+    args,
+    num_exps,
+    num_people,
+    max_ep_len,
 ):
 
-    pathprefix = (
-        "./datasets/" + args.net_type + "-" + args.env_type + "-dqn/" + args.state_mode
-    )
-    rewards_dataset_paths = (
-        pathprefix
-        + "-people"
-        + str(num_people)
-        + "-cf"
-        + str(args.counterfactual)
-        + "-"
-        + current_time
-        + ".csv"
-    )
+    name = "Full"
+    if args.state_mode in ["reset-binary", "reset"]:
+        name = "Min"
+    if args.state_mode == "equal-binary":
+        name = "Reset"
+    if args.counterfactual:
+        name = "FairQCM"
+    if args.net_type == "rnn":
+        name = "RNN"
+    rewards_dataset_path = f"datasets/{args.env_type}/{name}.csv"
+    donuts_dataset_path = f"datasets/{args.env_type}/{name}_donuts.csv"
 
-    with open(rewards_dataset_paths, "w", newline="") as csv_file:
+    with open(rewards_dataset_path, "w", newline="") as csv_file:
         csv_writer = csv.writer(csv_file)
-        csv_writer.writerow(
-            ["episodes", "people", "maxeplen", "learning rate", "batch size"]
-        )
-        csv_writer.writerow(
-            [
-                str(args.episodes),
-                str(num_people),
-                str(max_ep_len),
-                str(args.lr),
-                str(args.batch_size),
-            ]
-        )
         for i in range(num_exps):
             csv_writer.writerow(reward_list_all[i])
-            csv_writer.writerow([""])
-            if args.env_type == "donut":
+
+    if args.env_type == "donut":
+        with open(donuts_dataset_path, "w", newline="") as csv_file:
+            csv_writer = csv.writer(csv_file)
+            for i in range(num_exps):
                 csv_writer.writerow(donuts_list_all[i])
-            else:
-                csv_writer.writerow(" ")
 
     reward_list_all = np.array(reward_list_all)
     donuts_list_all = np.array(donuts_list_all)
