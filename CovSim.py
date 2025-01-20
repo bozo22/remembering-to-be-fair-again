@@ -37,18 +37,22 @@ class CovidSEIREnv(gym.Env):
 
     # TODO: Model death rate and try to make death proportions similar to each other
     def __init__(
-            self,
-            k=3,
-            population=None,  # array-like of length k, or a single scalar
-            beta=0.3,  # can be scalar or array-like of length k
-            sigma=0.2,  # can be scalar or array-like of length k
-            gamma=0.1,  # can be scalar or array-like of length k
-            vaccine_schedule=None,  # array-like of length max_steps with # vaccines available each step
-            max_steps=500,
-            allocation_step=0.2,  # granularity of vaccine allocation fractions
-            init_states=None,
+        self,
+        render_mode=None,
+        k=3,
+        population=None,  # array-like of length k, or a single scalar
+        beta=0.3,  # can be scalar or array-like of length k
+        sigma=0.2,  # can be scalar or array-like of length k
+        gamma=0.1,  # can be scalar or array-like of length k
+        vaccine_schedule=None,  # array-like of length max_steps with # vaccines available each step
+        max_steps=500,
+        allocation_step=0.2,  # granularity of vaccine allocation fractions
+        init_states=None,
     ):
         super(CovidSEIREnv, self).__init__()
+
+        # Set render mode
+        self.render_mode = render_mode
 
         # Number of regions
         self.k = k
@@ -94,7 +98,9 @@ class CovidSEIREnv(gym.Env):
         else:
             self.vaccine_schedule = np.array(vaccine_schedule, dtype=np.float32)
             if len(self.vaccine_schedule) < max_steps:
-                padding = np.zeros(max_steps - len(self.vaccine_schedule), dtype=np.float32)
+                padding = np.zeros(
+                    max_steps - len(self.vaccine_schedule), dtype=np.float32
+                )
                 self.vaccine_schedule = np.concatenate([self.vaccine_schedule, padding])
         self.max_steps = max_steps
 
@@ -103,7 +109,8 @@ class CovidSEIREnv(gym.Env):
 
         # Define all possible allocations that sum to 1
         all_possible_allocations = [
-            allocation for allocation in product(self.allocation_fractions, repeat=self.k)
+            allocation
+            for allocation in product(self.allocation_fractions, repeat=self.k)
             if np.isclose(sum(allocation), 1.0, atol=1e-6)
         ]
 
@@ -124,9 +131,9 @@ class CovidSEIREnv(gym.Env):
         self.init_states = init_states
         self.reset(self.init_states)
 
-    def step(self, action):
+    def get_transition(self, state, memory, action, schedule_step):
         """
-        Take one step in the environment:
+        Calculate a transition in the environment:
           1. Allocate vaccines among k regions.
           2. Move vaccinated individuals from S -> R (assuming perfect efficacy).
           3. Apply SEIR updates in each region.
@@ -138,13 +145,15 @@ class CovidSEIREnv(gym.Env):
         allocation = self.allocation_mapping[action]
 
         # Proceed with vaccine allocation and SEIR updates
-        total_vaccines = self.vaccine_schedule[self.current_step]
-        allocation = allocation * total_vaccines  # Scale allocation by available vaccines
+        total_vaccines = self.vaccine_schedule[schedule_step]
+        allocation = (
+            allocation * total_vaccines
+        )  # Scale allocation by available vaccines
 
         # Current state is shape (4*k,)
         # We'll reshape it into (k,4) for clarity in calculations
         # region_state[i] = [S, E, I, R] for region i
-        region_state = self.state.reshape((self.k, 4))
+        region_state = state.reshape((self.k, 4))
 
         # -- 2. Vaccinate (move from S -> R) --
         for i in range(self.k):
@@ -152,7 +161,9 @@ class CovidSEIREnv(gym.Env):
             # The fraction of the region's population that can be vaccinated
             # (just naive: min of S[i]*pop_i or # of allocated vaccines).
             # Then convert that number of vaccines to fraction of the region's pop.
-            max_possible_vaccines = region_state[i, 0] * pop_i  # S fraction * population
+            max_possible_vaccines = (
+                region_state[i, 0] * pop_i
+            )  # S fraction * population
             used_vaccines = min(allocation[i], max_possible_vaccines)
             # Convert used_vaccines to fraction out of population
             used_vaccines_frac = used_vaccines / pop_i
@@ -164,7 +175,6 @@ class CovidSEIREnv(gym.Env):
             # Clip to ensure no numeric drift
             region_state[i, 0] = np.clip(region_state[i, 0], 0.0, 1.0)
             region_state[i, 3] = np.clip(region_state[i, 3], 0.0, 1.0)
-
 
         # -- 3. SEIR updates for each region --
         # Basic compartmental update (Euler discrete approximation)
@@ -199,25 +209,46 @@ class CovidSEIREnv(gym.Env):
 
         # Recombine
         region_state = np.stack([S_new, E_new, I_new, R_new], axis=1)
-        self.state = region_state.flatten()
+        new_state = region_state.flatten()
 
         # -- 4. Reward: e.g., negative sum of suscepted fractions across all k regions --
         total_infected = np.sum(I_new)
         # print(f"prod{np.sum(S_new*self.population)}")
-        sum_sus = np.sum((S_new+E_new)*self.population)
+        sum_sus = np.sum((S_new + E_new) * self.population)
         # print(f"reward: {min(self.memory)}")
         reward = -sum_sus  # we want to minimize suscepted population
         # Negative product of suscepted (nash)
-        # Episode termination condition
-        self.current_step += 1
-        done = (self.current_step >= self.max_steps)
+
+        new_memory = memory + allocation
+        # print(f"allocation: {allocation}")
 
         # Info dictionary for debugging
         info = {
             "total_infected": float(total_infected),
-            "vaccines_allocated": allocation
+            "vaccines_allocated": allocation,
         }
-        self.memory += allocation
+
+        return new_state, new_memory, float(reward), info
+
+    def step(self, action):
+        """
+        Take one step in the environment
+        """
+
+        # Get transition
+        schedule_step = self.current_step
+        new_state, new_memory, reward, info = self.get_transition(
+            self.state, self.memory, action, schedule_step
+        )
+
+        # Update state and memory
+        self.state = new_state
+        self.memory = new_memory
+
+        # Episode termination condition
+        self.current_step += 1
+        done = self.current_step >= self.max_steps
+
         # print(f"allocation: {allocation}")
         return self.state, self.memory, float(reward), done, info
 
@@ -230,7 +261,9 @@ class CovidSEIREnv(gym.Env):
         self.current_step = 0
         if len(init_states) == 0:
             print("nonooosdfsdf")
-            init_states = np.repeat(np.array([0.8, 0.1, 0.1, 0.0])[np.newaxis, :], self.k, axis=0)
+            init_states = np.repeat(
+                np.array([0.8, 0.1, 0.1, 0.0])[np.newaxis, :], self.k, axis=0
+            )
 
         # Build initial (k,4) array
         region_init = []
@@ -239,7 +272,7 @@ class CovidSEIREnv(gym.Env):
 
         region_init = np.array(region_init, dtype=np.float32)
         self.state = region_init.flatten()
-        self.memory = np.zeros((self.k, ))
+        self.memory = np.zeros((self.k,))
         # print("----------------Env reset--------------------")
         return self.state, self.memory
 
@@ -247,15 +280,19 @@ class CovidSEIREnv(gym.Env):
         """
         Render each region's SEIR fractions.
         """
-        region_state = self.state.reshape((self.k, 4))
-        print(f"Step {self.current_step}")
-        for i in range(self.k):
-            S_i, E_i, I_i, R_i = region_state[i]
-            print(f"  Region {i}: S={S_i:.4f}, E={E_i:.4f}, I={I_i:.4f}, R={R_i:.4f}, Vaccines allocated so far={self.memory[i]}")
-        print()
+        if self.render_mode is not None:
+            region_state = self.state.reshape((self.k, 4))
+            print(f"Step {self.current_step}")
+            for i in range(self.k):
+                S_i, E_i, I_i, R_i = region_state[i]
+                print(
+                    f"  Region {i}: S={S_i:.4f}, E={E_i:.4f}, I={I_i:.4f}, R={R_i:.4f}, Vaccines allocated so far={self.memory[i]}"
+                )
+            print()
 
     def close(self):
         pass
+
 
 class Net(nn.Module):
     def __init__(self, states, actions):
@@ -267,27 +304,31 @@ class Net(nn.Module):
             nn.ReLU(),
             nn.Linear(16, 8),
             nn.ReLU(),
-            nn.Linear(8, actions))
+            nn.Linear(8, actions),
+        )
 
     def forward(self, x):
         action_prob = self.model(x)
         return action_prob
-class DQN():
+
+
+class DQN:
     def __init__(self, num_states, num_actions, memory_capacity, learning_rate, args):
         super(DQN, self).__init__()
 
-        self.eval_net, self.target_net = Net(num_states, num_actions), Net(num_states, num_actions)
+        self.eval_net, self.target_net = Net(num_states, num_actions), Net(
+            num_states, num_actions
+        )
 
         def init_weights(m):
-            if hasattr(m, 'weight'):
+            if hasattr(m, "weight"):
                 nn.init.orthogonal_(m.weight.data)
-            if hasattr(m, 'bias'):
+            if hasattr(m, "bias"):
                 nn.init.constant_(m.bias.data, 0)
 
         self.eval_net.apply(init_weights)
 
-        self.target_net.load_state_dict(
-            self.eval_net.state_dict())
+        self.target_net.load_state_dict(self.eval_net.state_dict())
 
         self.num_states = num_states
         self.num_actions = num_actions
@@ -299,7 +340,6 @@ class DQN():
         self.memory = np.zeros((memory_capacity, num_states * 2 + 2))
         self.optimizer = torch.optim.Adam(self.eval_net.parameters(), lr=learning_rate)
         self.loss_func = nn.MSELoss()
-
 
     def choose_action(self, state, greedy=False):
         state = torch.unsqueeze(torch.FloatTensor(state), 0)
@@ -320,7 +360,9 @@ class DQN():
         return action
 
     def store_transition(self, state, memory, action, reward, next_state, next_memory):
-        transition = np.hstack((state, memory, [action, reward], next_state, next_memory))
+        transition = np.hstack(
+            (state, memory, [action, reward], next_state, next_memory)
+        )
         index = self.memory_counter % self.memory_capacity
         self.memory[index, :] = transition
         self.memory_counter += 1
@@ -332,10 +374,14 @@ class DQN():
 
         sample_index = np.random.choice(self.memory_capacity, self.args.batch_size)
         batch_memory = self.memory[sample_index, :]
-        batch_state = torch.FloatTensor(batch_memory[:, :self.num_states])
-        batch_action = torch.LongTensor(batch_memory[:, self.num_states:self.num_states + 1].astype(int))
-        batch_reward = torch.FloatTensor(batch_memory[:, self.num_states + 1:self.num_states + 2])
-        batch_next_state = torch.FloatTensor(batch_memory[:, -self.num_states:])
+        batch_state = torch.FloatTensor(batch_memory[:, : self.num_states])
+        batch_action = torch.LongTensor(
+            batch_memory[:, self.num_states : self.num_states + 1].astype(int)
+        )
+        batch_reward = torch.FloatTensor(
+            batch_memory[:, self.num_states + 1 : self.num_states + 2]
+        )
+        batch_next_state = torch.FloatTensor(batch_memory[:, -self.num_states :])
 
         q_eval = self.eval_net(batch_state).gather(1, batch_action)
 
@@ -357,34 +403,65 @@ class DQN():
         self.optimizer.step()
 
     def counterfactual_update(
-            self,
-            env,
-            state,
-            action,
-            prev_reward,
-            next_state,
-            actual_memory,
-            max_ep_len,
-            state_mode='binary',
-            num_updates=2
+        self,
+        env,
+        state,
+        action,
+        actual_memory,
+        next_state,
+        max_ep_len,
+        schedule_step,
+        magnitude=10_000_000,
+        distribution="normal",
     ):
-        pass
+        # Don't do anything if we're at the end of the episode
+        if schedule_step == max_ep_len - 1:
+            return
+
+        # Generate counterfactual memory (clip to ensure non-negative)
+        cf_memory = actual_memory
+        assert distribution in ["normal", "uniform"], "Invalid distribution type"
+        if distribution == "normal":
+            cf_memory = np.random.normal(actual_memory, magnitude)
+        elif distribution == "uniform":
+            cf_memory = np.random.uniform(
+                actual_memory - magnitude, actual_memory + magnitude
+            )
+        cf_memory = np.clip(cf_memory, a_min=0, a_max=None)
+
+        # Get the transition using the counterfactual memory
+        new_state, new_memory, reward, _ = env.get_transition(
+            state, cf_memory, action, schedule_step
+        )
+
+        # Store the counterfactual experience
+        # NOTE: Should we use next_state (from the actual transition) or new_state (from the counterfactual transition)?
+        # Paper says next_state, but new_state seems more logical to me.
+        self.store_transition(state, cf_memory, action, reward, next_state, new_memory)
 
 
 def run(k, max_ep_len, memory_capacity, args, seed=42):
     max_steps = 24
     # Suppose at each step we produce 50,000 vaccines for 10 steps
     # vaccine_schedule = [1_000] * max_steps
-    #approximate vaccine production schedule from https://www.ifpma.org/news/as-covid-19-vaccine-output-estimated-to-reach-over-12-billion-by-year-end-and-24-billion-by-mid-2022-innovative-vaccine-manufacturers-renew-commitment-to-support-g20-efforts-to-address-remaining-barr/
-    vaccine_schedule = (np.arange(0,max_steps)**2 * 0.08)*3_000_000
+    # approximate vaccine production schedule from https://www.ifpma.org/news/as-covid-19-vaccine-output-estimated-to-reach-over-12-billion-by-year-end-and-24-billion-by-mid-2022-innovative-vaccine-manufacturers-renew-commitment-to-support-g20-efforts-to-address-remaining-barr/
+    vaccine_schedule = (np.arange(0, max_steps) ** 2 * 0.08) * 3_000_000
     infected_records = np.ones((args.episodes, max_steps, k))
     init_state_0 = [0.99, 0.01, 0.0, 0.0]
     init_state_1 = [0.8, 0.1, 0.1, 0.0]
     init_state_2 = [0.75, 0.1, 0.15, 0.0]
     init_states = np.array([init_state_0, init_state_1, init_state_2])
-    env = CovidSEIREnv(k=k, population=[700_000_000, 200_000_000, 100_000_000], vaccine_schedule=vaccine_schedule,
-                       max_steps=max_steps, beta=[0.33, 0.22, 0.18], gamma=[0.262, 0.085, 0.087], sigma=0.2,
-                       init_states=init_states)
+    env = CovidSEIREnv(
+        render_mode=None,
+        k=k,
+        population=[700_000_000, 200_000_000, 100_000_000],
+        vaccine_schedule=vaccine_schedule,
+        max_steps=max_steps,
+        beta=[0.33, 0.22, 0.18],
+        gamma=[0.262, 0.085, 0.087],
+        sigma=0.2,
+        init_states=init_states,
+    )
 
     num_actions = env.action_space.n
     state, memory = env.reset(init_states)
@@ -408,24 +485,35 @@ def run(k, max_ep_len, memory_capacity, args, seed=42):
             state_input = np.concatenate((state_input, memory))
             action = dqn.choose_action(state_input)
             actual_memory = env.memory.copy()
+            schedule_step = env.current_step
             next_state, next_memory, reward, done, info = env.step(action)
             dqn.store_transition(state, memory, action, reward, next_state, next_memory)
-            # if args.counterfactual:
-            #     dqn.counterfactual_update(env, state, action, reward, next_state, actual_memory, max_ep_len,
-            #                               args.state_mode, args.num_updates)
+            if args.counterfactual:
+                dqn.counterfactual_update(
+                    env,
+                    state,
+                    action,
+                    actual_memory,
+                    next_state,
+                    max_ep_len,
+                    schedule_step,
+                )
             ep_reward += reward
             if reward != 0:
                 ep_donuts += 1
 
             if dqn.memory_counter >= memory_capacity:
                 dqn.learn()
-                if done and i % 100 == 0:
-                    print("episode: {} , the episode reward is {}".format(i, round(ep_reward, 3)))
+                # if done and i % 100 == 0:
+                #     print(
+                #         "episode: {} , the episode reward is {}".format(
+                #             i, round(ep_reward, 3)
+                #         )
+                #     )
             if done:
                 break
             state = next_state
             memory = next_memory
-
 
         if dqn.args.epsilon > 0.2:
             dqn.args.epsilon = dqn.args.epsilon * 0.999
@@ -445,15 +533,16 @@ def run(k, max_ep_len, memory_capacity, args, seed=42):
 
             next_state, next_memory, reward, done, info = env.step(action)
             reshaped_next_state = next_state.reshape((k, 4))
-            infected_records[i][curr_step] = (reshaped_next_state[:, 0]+reshaped_next_state[:, 1])*env.population
-            print(f"reward: {reward}")
+            infected_records[i][curr_step] = (
+                reshaped_next_state[:, 0] + reshaped_next_state[:, 1]
+            ) * env.population
             all_rewards[i][curr_step] = reward
             curr_step += 1
             ep_reward += reward
             if reward != 0:
                 ep_donuts += 1
             if done:
-                print("------------------")
+                # print("------------------")
                 break
             state = next_state
             memory = next_memory
@@ -461,9 +550,11 @@ def run(k, max_ep_len, memory_capacity, args, seed=42):
             state_input = np.concatenate((state_input, memory))
             env.render()
         # if i % 10 == 0:
-            # print(i, "-------------------------------")
+        # print(i, "-------------------------------")
         reward_list.append(ep_reward)
         donuts_list.append(ep_donuts)
+        if (i + 1) % 10 == 0:
+            print(f"[EP {i+1}/{args.episodes}] Avg. Reward: {np.mean(reward_list)}")
     env.close()
     return reward_list, donuts_list, all_rewards, infected_records
 
@@ -474,6 +565,10 @@ import matplotlib.pyplot as plt
 
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib
+
+matplotlib.use("Agg")
+
 
 def plot_mean_and_std(rewards_array, name="example"):
     """
@@ -498,8 +593,13 @@ def plot_mean_and_std(rewards_array, name="example"):
 
         # Plot mean reward and standard deviation for this element
         plt.plot(steps, mean_rewards, label=f"Element {element + 1} Mean Reward")
-        plt.fill_between(steps, mean_rewards - std_rewards, mean_rewards + std_rewards,
-                         alpha=0.2, label=f"Element {element + 1} Std Dev")
+        plt.fill_between(
+            steps,
+            mean_rewards - std_rewards,
+            mean_rewards + std_rewards,
+            alpha=0.2,
+            label=f"Element {element + 1} Std Dev",
+        )
 
     # Add labels, title, and legend
     plt.xlabel("Steps")
@@ -512,29 +612,96 @@ def plot_mean_and_std(rewards_array, name="example"):
     plt.savefig(f"{name}.png")
 
 
-
 if __name__ == "__main__":
-    prs = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter,
-                                  description="""Fair Covid""")
-    prs.add_argument("-ep", dest="episodes", type=int, default=300, required=False, help="episodes.\n")
-    prs.add_argument("-lr", dest="lr", type=float, default=0.0001, required=False, help="learning rate.\n")
-    prs.add_argument("-e", dest="epsilon", type=float, default=1.0, required=False, help="Exploration rate.\n")
-    prs.add_argument("-g", dest="gamma", type=float, default=0.95, required=False, help="Discount factor\n")
-    prs.add_argument("-sm", dest="state_mode", type=str, default='deep', required=False,
-                     help="State representation mode\n")
-    prs.add_argument("-cf", dest="counterfactual", type=bool, default=False, required=False,
-                     help="Counterfactual Update\n")
-    prs.add_argument("-bs", dest="batch_size", type=int, default=64, required=False,
-                     help="Batch Size\n")
-    prs.add_argument("-qiter", dest="q_network_iterations", type=int, default=1000, required=False,
-                     help="Q network iterations\n")
-    prs.add_argument("-nexp", dest="num_exps", type=int, default=1, required=False,
-                     help="Number of Experiments\n")
-    prs.add_argument("-nupds", dest="num_updates", type=int, default=2, required=False,
-                     help="Number of updates to look forward in to generate counterfactual experiences\n")
+    prs = argparse.ArgumentParser(
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+        description="""Fair Covid""",
+    )
+    prs.add_argument(
+        "-ep",
+        dest="episodes",
+        type=int,
+        default=300,
+        required=False,
+        help="episodes.\n",
+    )
+    prs.add_argument(
+        "-lr",
+        dest="lr",
+        type=float,
+        default=0.0001,
+        required=False,
+        help="learning rate.\n",
+    )
+    prs.add_argument(
+        "-e",
+        dest="epsilon",
+        type=float,
+        default=1.0,
+        required=False,
+        help="Exploration rate.\n",
+    )
+    prs.add_argument(
+        "-g",
+        dest="gamma",
+        type=float,
+        default=0.95,
+        required=False,
+        help="Discount factor\n",
+    )
+    prs.add_argument(
+        "-sm",
+        dest="state_mode",
+        type=str,
+        default="deep",
+        required=False,
+        help="State representation mode\n",
+    )
+    prs.add_argument(
+        "-cf",
+        dest="counterfactual",
+        type=bool,
+        default=False,
+        required=False,
+        help="Counterfactual Update\n",
+    )
+    prs.add_argument(
+        "-bs",
+        dest="batch_size",
+        type=int,
+        default=64,
+        required=False,
+        help="Batch Size\n",
+    )
+    prs.add_argument(
+        "-qiter",
+        dest="q_network_iterations",
+        type=int,
+        default=1000,
+        required=False,
+        help="Q network iterations\n",
+    )
+    prs.add_argument(
+        "-nexp",
+        dest="num_exps",
+        type=int,
+        default=1,
+        required=False,
+        help="Number of Experiments\n",
+    )
+    prs.add_argument(
+        "-nupds",
+        dest="num_updates",
+        type=int,
+        default=2,
+        required=False,
+        help="Number of updates to look forward in to generate counterfactual experiences\n",
+    )
     args = prs.parse_args()
 
-    reward_t, donut_t, rewards_to_plot, infected_records = run(k=3, max_ep_len=10, memory_capacity=400, args=args)
+    reward_t, donut_t, rewards_to_plot, infected_records = run(
+        k=3, max_ep_len=10, memory_capacity=400, args=args
+    )
     plot_mean_and_std(np.expand_dims(rewards_to_plot, axis=-1), "rewards")
     plot_mean_and_std(infected_records, "infected_records")
 
@@ -552,4 +719,3 @@ if __name__ == "__main__":
     #     action = env.action_space.sample()
     #     obs, reward, done, info = env.step(action)
     #     env.render()
-
