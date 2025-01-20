@@ -29,10 +29,20 @@
 # python dqn-donut.py -ep 1000 -nexp 10 -sm equal-binary --reward_type gini
 
 # rnn
-# python dqn-recurrent.py -ep 1000 -nexp 10 -sm rnn --reward_type gini
-# python dqn-recurrent.py -ep 1000 -nexp 10 -sm rnn --reward_type nsw
+# python dqn-recurrent.py -ep 1000 -nexp 1 -sm rnn --reward_type gini
+# python dqn-recurrent.py -ep 1000 -nexp 1 -sm rnn --reward_type nsw
 # python dqn-recurrent.py -ep 1000 -nexp 10 -sm rnn --reward_type egalitarian
 # python dqn-recurrent.py -ep 1000 -nexp 10 -sm rnn --reward_type rawlsian
 # python dqn-recurrent.py -ep 1000 -nexp 10 -sm rnn --reward_type utilitarian
 
-python main.py -ep 1000 -nexp 10 -env donut -net rnn -rt gini
+# python plot.py --env donut --rt nsw
+# python plot.py --env donut --rt utilitarian
+# python plot.py --env donut --rt rawlsian
+# python plot.py --env donut --rt egalitarian
+# python plot.py --env donut --rt gini
+
+python plot_500.py --env donut --rt nsw
+python plot_500.py --env donut --rt utilitarian
+python plot_500.py --env donut --rt rawlsian
+python plot_500.py --env donut --rt egalitarian
+python plot_500.py --env donut --rt gini
