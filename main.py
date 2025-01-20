@@ -281,6 +281,10 @@ def main():
         num_people = 4
         max_ep_len = 40
         memory_capacity = 1000
+        if args.net_type == "rnn":
+            memory_capacity = 2000
+        if args.counterfactual:
+            memory_capacity = 8000
 
     # if args.counterfactual:
     #     args.batch_size = args.batch_size * np.power(2, num_people)
@@ -290,6 +294,7 @@ def main():
     reward_list = []
     donut_list = []
     for i in range(num_exps):
+        print(f"Experiment {i+1}/{num_exps}")
         random.seed(seed)
         np.random.seed(seed + i + 1)
         reward_t, donut_t = run(num_people, max_ep_len, memory_capacity, args, seed + i)
