@@ -39,6 +39,7 @@ class CovidSEIREnv(gym.Env):
     def __init__(
         self,
         render_mode=None,
+        state_mode="full",
         k=3,
         population=None,  # array-like of length k, or a single scalar
         beta=0.3,  # can be scalar or array-like of length k
@@ -50,6 +51,9 @@ class CovidSEIREnv(gym.Env):
         init_states=None,
     ):
         super(CovidSEIREnv, self).__init__()
+
+        # Set state mode
+        self.state_mode = state_mode
 
         # Set render mode
         self.render_mode = render_mode
@@ -119,9 +123,12 @@ class CovidSEIREnv(gym.Env):
         # Action space: Discrete index into the allocation mapping
         self.action_space = gym.spaces.Discrete(len(self.allocation_mapping))
 
-        # Observation space: 4 compartments per region -> shape (4*k,)
+        # Observation space:
+        # No memory: 4 compartments per region -> shape (4*k,)
+        # With memory: 4 compartments per region + memory -> shape (4*k + k,)
+        memory_size = k if state_mode != "none" else 0
         self.observation_space = gym.spaces.Box(
-            low=0.0, high=1.0, shape=(4 * k,), dtype=np.float32
+            low=0.0, high=1.0, shape=(4 * k + memory_size,), dtype=np.float32
         )
 
         self.current_step = 0
@@ -130,6 +137,31 @@ class CovidSEIREnv(gym.Env):
         self.memory = np.zeros((self.k,))
         self.init_states = init_states
         self.reset(self.init_states)
+
+    def get_transformed_memory(self, memory=None):
+        self_memory = False
+        if memory is None:
+            memory = self.memory.copy()
+            self_memory = True
+
+        # Full: no processing needed
+        if self.state_mode == "full":
+            return memory
+
+        # Min: subtract min value
+        if self.state_mode == "min":
+            return memory - np.min(memory)
+
+        # Reset: subtract min value, reset to 0 when elements are equal
+        if self.state_mode == "reset":
+            memory = memory - np.min(memory)
+            if self_memory and np.all(memory == 0):
+                self.memory = memory
+            return memory
+
+        # None: no memory
+        if self.state_mode == "none":
+            return np.array([])
 
     def get_transition(self, state, memory, action, schedule_step):
         """
@@ -249,8 +281,17 @@ class CovidSEIREnv(gym.Env):
         self.current_step += 1
         done = self.current_step >= self.max_steps
 
-        # print(f"allocation: {allocation}")
-        return self.state, self.memory, float(reward), done, info
+        # Transform memory
+        memory = self.get_transformed_memory()
+
+        # Save separate state and memory
+        info["state"] = self.state.copy()
+        info["memory"] = memory
+
+        # Concat state and memory for observation
+        obs = np.concatenate((self.state, memory))
+
+        return obs, float(reward), done, info
 
     def reset(self, init_states=[]):
         """
@@ -273,8 +314,15 @@ class CovidSEIREnv(gym.Env):
         region_init = np.array(region_init, dtype=np.float32)
         self.state = region_init.flatten()
         self.memory = np.zeros((self.k,))
-        # print("----------------Env reset--------------------")
-        return self.state, self.memory
+        memory = self.get_transformed_memory()
+
+        # Save separate state and memory
+        info = {"state": self.state.copy(), "memory": memory}
+
+        # Concatenate state and memory for observation
+        obs = np.concatenate((self.state, memory))
+
+        return obs, info
 
     def render(self, mode="human"):
         """
@@ -345,7 +393,7 @@ class DQN:
         state = torch.unsqueeze(torch.FloatTensor(state), 0)
         if greedy:
             with torch.no_grad():
-                action_value = self.target_net.forward(state)
+                action_value = self.eval_net.forward(state)
                 action = torch.max(action_value, 1)[1].data.numpy()
             action = action[0]
 
@@ -407,56 +455,60 @@ class DQN:
         env,
         state,
         action,
-        actual_memory,
+        memory,
         next_state,
         max_ep_len,
         schedule_step,
-        magnitude=10_000_000,
-        distribution="normal",
+        magnitude=25_000_000,
+        n_counterfactuals=10,
+        distribution="uniform",
     ):
         # Don't do anything if we're at the end of the episode
         if schedule_step == max_ep_len - 1:
             return
+        for _ in range(n_counterfactuals):
+            # Generate counterfactual memory (clip to ensure non-negative)
+            cf_memory = memory
+            assert distribution in ["normal", "uniform"], "Invalid distribution type"
+            if distribution == "normal":
+                cf_memory = np.random.normal(memory, magnitude).round()
+            elif distribution == "uniform":
+                cf_memory = np.random.uniform(
+                    memory - magnitude, memory + magnitude
+                ).round()
+            cf_memory = np.clip(cf_memory, a_min=0, a_max=None)
 
-        # Generate counterfactual memory (clip to ensure non-negative)
-        cf_memory = actual_memory
-        assert distribution in ["normal", "uniform"], "Invalid distribution type"
-        if distribution == "normal":
-            cf_memory = np.random.normal(actual_memory, magnitude)
-        elif distribution == "uniform":
-            cf_memory = np.random.uniform(
-                actual_memory - magnitude, actual_memory + magnitude
+            # Get the transition using the counterfactual memory
+            new_state, new_memory, reward, _ = env.get_transition(
+                state, cf_memory, action, schedule_step
             )
-        cf_memory = np.clip(cf_memory, a_min=0, a_max=None)
+            new_memory = env.get_transformed_memory(new_memory)
 
-        # Get the transition using the counterfactual memory
-        new_state, new_memory, reward, _ = env.get_transition(
-            state, cf_memory, action, schedule_step
-        )
-
-        # Store the counterfactual experience
-        # NOTE: Should we use next_state (from the actual transition) or new_state (from the counterfactual transition)?
-        # Paper says next_state, but new_state seems more logical to me.
-        self.store_transition(state, cf_memory, action, reward, next_state, new_memory)
+            # Store the counterfactual experience
+            # NOTE: Should we use next_state (from the actual transition) or new_state (from the counterfactual transition)?
+            # Paper says next_state, but new_state seems more logical to me.
+            self.store_transition(
+                state, cf_memory, action, reward, new_state, new_memory
+            )
 
 
 def run(k, max_ep_len, memory_capacity, args, seed=42):
-    max_steps = 24
     # Suppose at each step we produce 50,000 vaccines for 10 steps
     # vaccine_schedule = [1_000] * max_steps
     # approximate vaccine production schedule from https://www.ifpma.org/news/as-covid-19-vaccine-output-estimated-to-reach-over-12-billion-by-year-end-and-24-billion-by-mid-2022-innovative-vaccine-manufacturers-renew-commitment-to-support-g20-efforts-to-address-remaining-barr/
-    vaccine_schedule = (np.arange(0, max_steps) ** 2 * 0.08) * 3_000_000
-    infected_records = np.ones((args.episodes, max_steps, k))
+    vaccine_schedule = (np.arange(0, max_ep_len) ** 2 * 0.08) * 3_000_000
+    infected_records = np.ones((args.episodes, max_ep_len, k))
     init_state_0 = [0.99, 0.01, 0.0, 0.0]
     init_state_1 = [0.8, 0.1, 0.1, 0.0]
     init_state_2 = [0.75, 0.1, 0.15, 0.0]
     init_states = np.array([init_state_0, init_state_1, init_state_2])
     env = CovidSEIREnv(
         render_mode=None,
+        state_mode=args.state_mode,
         k=k,
         population=[700_000_000, 200_000_000, 100_000_000],
         vaccine_schedule=vaccine_schedule,
-        max_steps=max_steps,
+        max_steps=max_ep_len,
         beta=[0.33, 0.22, 0.18],
         gamma=[0.262, 0.085, 0.087],
         sigma=0.2,
@@ -464,8 +516,7 @@ def run(k, max_ep_len, memory_capacity, args, seed=42):
     )
 
     num_actions = env.action_space.n
-    state, memory = env.reset(init_states)
-    num_states = len(state) + len(memory)
+    num_states = env.observation_space.shape[0]
 
     dqn = DQN(num_states, num_actions, memory_capacity, args.lr, args)
 
@@ -473,86 +524,89 @@ def run(k, max_ep_len, memory_capacity, args, seed=42):
     print("Collecting Experience....")
     reward_list = []
     donuts_list = []
-    all_rewards = np.zeros((episodes, max_steps))
+    all_rewards = np.zeros((episodes, max_ep_len))
     print(all_rewards.shape)
     for i in range(episodes):
-        state, memory = env.reset(init_states)
-        ep_reward = 0
-        ep_donuts = 0
+        obs, info = env.reset(init_states)
+        state = info["state"]
+        memory = info["memory"]
 
         while True:
-            state_input = state.copy()
-            state_input = np.concatenate((state_input, memory))
-            action = dqn.choose_action(state_input)
-            actual_memory = env.memory.copy()
+            # Store memory and step for CF update
             schedule_step = env.current_step
-            next_state, next_memory, reward, done, info = env.step(action)
+
+            # Take step
+            action = dqn.choose_action(obs)
+            next_obs, reward, done, info = env.step(action)
+            next_state = info["state"]
+            next_memory = info["memory"]
+
+            # Store actual experience
             dqn.store_transition(state, memory, action, reward, next_state, next_memory)
+
+            # Store counterfactual experiences
             if args.counterfactual:
                 dqn.counterfactual_update(
                     env,
                     state,
                     action,
-                    actual_memory,
+                    memory,
                     next_state,
                     max_ep_len,
                     schedule_step,
+                    n_counterfactuals=args.num_counterfactuals,
                 )
-            ep_reward += reward
-            if reward != 0:
-                ep_donuts += 1
 
+            # Learn
             if dqn.memory_counter >= memory_capacity:
                 dqn.learn()
-                # if done and i % 100 == 0:
-                #     print(
-                #         "episode: {} , the episode reward is {}".format(
-                #             i, round(ep_reward, 3)
-                #         )
-                #     )
             if done:
                 break
+
+            # Transition to next state
+            obs = next_obs
             state = next_state
             memory = next_memory
 
+        # Update epsilon
         if dqn.args.epsilon > 0.2:
             dqn.args.epsilon = dqn.args.epsilon * 0.999
-        ep_reward = 0
-        ep_donuts = 0
 
-        state, memory = env.reset(init_states)
-        state_input = state.copy()
-        state_input = np.concatenate((state_input, memory))
+        # Evaluate
+        obs, info = env.reset(init_states)
+        state = info["state"]
+        memory = info["memory"]
         ep_reward = 0
-        # print("-------------------Evaluating-------------------")
-
         curr_step = 0
 
         while True:
-            action = dqn.choose_action(state_input, True)
+            # Take step
+            action = dqn.choose_action(obs, True)
+            next_obs, reward, done, info = env.step(action)
+            next_state = info["state"]
+            next_memory = info["memory"]
 
-            next_state, next_memory, reward, done, info = env.step(action)
+            # Update records
             reshaped_next_state = next_state.reshape((k, 4))
             infected_records[i][curr_step] = (
                 reshaped_next_state[:, 0] + reshaped_next_state[:, 1]
             ) * env.population
+
+            # Update rewards
             all_rewards[i][curr_step] = reward
+
+            # Transition to next state
             curr_step += 1
             ep_reward += reward
-            if reward != 0:
-                ep_donuts += 1
-            if done:
-                # print("------------------")
-                break
+            obs = next_obs
             state = next_state
             memory = next_memory
-            state_input = state.copy()
-            state_input = np.concatenate((state_input, memory))
+            if done:
+                break
             env.render()
-        # if i % 10 == 0:
-        # print(i, "-------------------------------")
+
         reward_list.append(ep_reward)
-        donuts_list.append(ep_donuts)
+
         if (i + 1) % 10 == 0:
             print(f"[EP {i+1}/{args.episodes}] Avg. Reward: {np.mean(reward_list)}")
     env.close()
@@ -566,8 +620,22 @@ import matplotlib.pyplot as plt
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib
+import csv
+import random
 
 matplotlib.use("Agg")
+
+
+def save_data(num_exps, reward_list_all):
+    name = args.state_mode.capitalize()
+    if args.counterfactual:
+        name = f"FairQCM ({name})"
+    rewards_dataset_path = f"datasets/covid/{name}.csv"
+
+    with open(rewards_dataset_path, "w", newline="") as csv_file:
+        csv_writer = csv.writer(csv_file)
+        for i in range(num_exps):
+            csv_writer.writerow(reward_list_all[i])
 
 
 def plot_mean_and_std(rewards_array, name="example"):
@@ -578,6 +646,7 @@ def plot_mean_and_std(rewards_array, name="example"):
         rewards_array (np.ndarray): A 3D numpy array of shape [num_episodes, num_steps, num_elements]
                                      containing rewards for multiple episodes and multiple elements.
     """
+
     # Get the number of episodes, steps, and elements
     num_episodes, num_steps, num_elements = rewards_array.shape
 
@@ -621,7 +690,7 @@ if __name__ == "__main__":
         "-ep",
         dest="episodes",
         type=int,
-        default=300,
+        default=1000,
         required=False,
         help="episodes.\n",
     )
@@ -653,7 +722,7 @@ if __name__ == "__main__":
         "-sm",
         dest="state_mode",
         type=str,
-        default="deep",
+        default="full",
         required=False,
         help="State representation mode\n",
     )
@@ -697,13 +766,35 @@ if __name__ == "__main__":
         required=False,
         help="Number of updates to look forward in to generate counterfactual experiences\n",
     )
+    prs.add_argument(
+        "-ncf",
+        dest="num_counterfactuals",
+        type=int,
+        default=10,
+        required=False,
+        help="Number of counterfactual experiences to generate per step\n",
+    )
     args = prs.parse_args()
 
-    reward_t, donut_t, rewards_to_plot, infected_records = run(
-        k=3, max_ep_len=10, memory_capacity=400, args=args
-    )
-    plot_mean_and_std(np.expand_dims(rewards_to_plot, axis=-1), "rewards")
-    plot_mean_and_std(infected_records, "infected_records")
+    # reward_t, donut_t, rewards_to_plot, infected_records = run(
+    #     k=3, max_ep_len=10, memory_capacity=400, args=args
+    # )
+    # plot_mean_and_std(np.expand_dims(rewards_to_plot, axis=-1), "rewards")
+    # plot_mean_and_std(infected_records, "infected_records")
+
+    seed = 2024
+    num_exps = args.num_exps
+    reward_list = []
+    memory_capacity = 1000 * (args.num_counterfactuals if args.counterfactual else 1)
+    for i in range(num_exps):
+        print(f"Experiment {i+1}/{num_exps}")
+        random.seed(seed)
+        np.random.seed(seed + i + 1)
+        reward_t, donut_t, rewards_to_plot, infected_records = run(
+            k=3, max_ep_len=24, memory_capacity=memory_capacity, args=args
+        )
+        reward_list.append(reward_t)
+    save_data(num_exps, reward_list)
 
     print(infected_records[-1][-1])
     # k = 3
