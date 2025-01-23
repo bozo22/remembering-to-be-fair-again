@@ -22,6 +22,8 @@ class Lending(gym.Env):
         self.default_obs = [1 for _ in range(self.people)]
         self.last_obs = self.default_obs
 
+        self.profit = 0 # add accumulated (through steps in one episode) profit
+
         if p is None:
             self.prob = [1.0 for _ in range(self.people)]
             self.stochastic = False
@@ -56,7 +58,12 @@ class Lending(gym.Env):
         if action > 1:
             subg = 1
 
+        ###########################
+        # reward calculation
         wrong_action = False
+        loan_amount = 1000 # add loan amount
+        interest_rate = 0.1 # add interest rate
+        loss_rate = 0.1 # add loss rate
         if self.last_obs[action]:
             self.loans[subg] += 1
             self.memory[subg] += 1
@@ -64,9 +71,12 @@ class Lending(gym.Env):
             if repayment <= ((self.credit[action] + 2)/10):
                 self.success += 1
                 self.credit[action] = min(self.credit[action] + 1, 7)
+                self.profit += loan_amount * interest_rate  # Gain from interest
             else:
                 self.success -= 1
                 self.credit[action] = max(self.credit[action] - 1, 0)
+                self.profit -= loan_amount * loss_rate  # Loss from default
+            reward = self.profit # set reward as profit
         else:
             wrong_action = True
         for i in range(self.people):
@@ -77,8 +87,8 @@ class Lending(gym.Env):
                 obs[i] = 0
 
         self.last_obs = obs.copy()
-        reward = self.equal_reward(self.loans.copy())
-
+        # reward = self.equal_reward(self.loans.copy())
+        ###########################
         obs = self.last_obs
 
         if self.state_mode == "reset":
@@ -99,12 +109,13 @@ class Lending(gym.Env):
         out_credit = self.binary_state(self.credit, 7)
         out_state.extend(out_success)
         out_state.extend(out_credit)
-
+        ###########################
+        # reward calculation
         if wrong_action:
             reward = -1 * self.episode_length
         if done and self.success < self.episode_length + int(self.episode_length / 10):
             reward = -10 * self.episode_length
-
+        ###########################
         if self.state_mode == "rnn":
             return out_state, reward, done, {}
         return out_state, out_memory, reward, done, {}
@@ -116,6 +127,7 @@ class Lending(gym.Env):
         self.curr_episode = 0
         self.success = self.episode_length
         self.credit = self.default_credit.copy()
+        self.profit = 0 # reset profit for every episode
 
         if seed is not None:
             self.seed = seed

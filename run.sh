@@ -35,14 +35,23 @@
 # python dqn-recurrent.py -ep 1000 -nexp 10 -sm rnn --reward_type rawlsian
 # python dqn-recurrent.py -ep 1000 -nexp 10 -sm rnn --reward_type utilitarian
 
-# python plot.py --env donut --rt nsw
-# python plot.py --env donut --rt utilitarian
-# python plot.py --env donut --rt rawlsian
-# python plot.py --env donut --rt egalitarian
-# python plot.py --env donut --rt gini
+python plot.py --env donut --rt nsw
+python plot.py --env donut --rt utilitarian
+python plot.py --env donut --rt rawlsian
+python plot.py --env donut --rt egalitarian
+python plot.py --env donut --rt gini
 
-python plot_500.py --env donut --rt nsw
-python plot_500.py --env donut --rt utilitarian
-python plot_500.py --env donut --rt rawlsian
-python plot_500.py --env donut --rt egalitarian
-python plot_500.py --env donut --rt gini
+# python plot_500.py --env donut --rt nsw
+# python plot_500.py --env donut --rt utilitarian
+# python plot_500.py --env donut --rt rawlsian
+# python plot_500.py --env donut --rt egalitarian
+# python plot_500.py --env donut --rt gini
+
+# fairQCM
+# python dqn-lending.py -ep 1000 -nexp 10 -cf True
+# full
+# python dqn-lending.py -ep 1000 -nexp 10
+# min
+# python dqn-lending.py -ep 1000 -nexp 10 -sm reset
+# RNN
+# python dqn-recurrent-lending.py -ep 1000 -nexp 10 -sm rnn

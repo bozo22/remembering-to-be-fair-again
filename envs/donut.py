@@ -80,6 +80,7 @@ class Donut(gym.Env):
     # add 4 more reward functions
     def utilitarian_reward(self, obs):
         """Calculate the total sum of rewards across all agents."""
+        # print(np.array(obs).shape)
         return sum(obs)
 
     def rawlsian_reward(self, obs):

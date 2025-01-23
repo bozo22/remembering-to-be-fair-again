@@ -5,7 +5,7 @@ matplotlib.use("Agg")  # Use the 'Agg' backend when running without a GUI
 import matplotlib.pyplot as plt
 import argparse
 
-def plot_data(env, rt, ax, donuts=False):
+def plot_data(env, rt, ax, smooth, donuts=False):
     directory = f"datasets/{env}/{rt}"
     method_colors = {
         'Full': '#1F77B4',  # blue
@@ -32,19 +32,29 @@ def plot_data(env, rt, ax, donuts=False):
         data = np.genfromtxt(data_path, delimiter=",")
         name = method   # Adjust label based on data type
 
-        ax.plot(data.mean(axis=0), label=name, color=color)
+        # Smooth data
+        exps, vals = data.shape
+        data = (
+            data.reshape(exps, -1, smooth).mean(axis=2, keepdims=True)
+            # .repeat(smooth, axis=2)
+            .reshape(exps, -1)
+        )
+
+        xx = np.arange(0, vals, smooth)
+        ax.plot(xx, data.mean(axis=0), label=name, color=color)
         ax.fill_between(
-            np.arange(data.shape[1]),
+            # np.arange(data.shape[1]),
+            xx,
             data.mean(axis=0) - data.std(axis=0),
             data.mean(axis=0) + data.std(axis=0),
             color=color,
             alpha=0.2,
         )
 
-def create_plots(env, rt):
+def create_plots(env, rt, smooth):
     fig, axs = plt.subplots(1, 2, figsize=(8, 4), layout="tight")
-    plot_data(env, rt, axs[0], donuts=False)
-    plot_data(env, rt, axs[1], donuts=True)
+    plot_data(env, rt, axs[0], smooth, donuts=False)
+    plot_data(env, rt, axs[1], smooth, donuts=True)
 
     # axs[0].set_title(f"{rt} Scores")
     # axs[1].set_title(f"{rt} Donuts Allocated")
@@ -65,6 +75,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--env", type=str, required=True)
     parser.add_argument("--rt", type=str, required=True)
+    parser.add_argument("--smooth", type=int, default=5)
     args = parser.parse_args()
 
-    create_plots(args.env, args.rt)
+    create_plots(args.env, args.rt, args.smooth)
