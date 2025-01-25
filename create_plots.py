@@ -2,13 +2,14 @@ import numpy as np
 import os
 import matplotlib
 import matplotlib.pyplot as plt
+import matplotlib.ticker as ticker
 import argparse
 
 matplotlib.use("Agg")
 
 
 def plot_data(env, ax, smooth, root, data_type="reward"):
-    for filename in os.listdir(f"{root}/{env}"):
+    for filename in sorted(os.listdir(f"{root}/{env}")):
         if not filename.endswith(f"{data_type}.csv"):
             continue
 
@@ -37,9 +38,6 @@ def plot_data(env, ax, smooth, root, data_type="reward"):
             alpha=0.2,
         )
 
-    ax.ticklabel_format(useOffset=False, style="plain")
-    ax.yaxis.set_major_formatter(matplotlib.ticker.StrMethodFormatter("{x:,.0f}"))
-
 
 def create_plots(env, smooth, root):
 
@@ -60,7 +58,9 @@ def create_plots(env, smooth, root):
             ax.set_xlabel("Number of Episodes")
 
         axs[0].set_ylabel("Cumulative Reward")
-        axs[1].set_ylabel("Number of Infected")
+        axs[1].set_ylabel("Number of Infected people")
+        axs[1].ticklabel_format(useOffset=False, style="plain")
+        axs[1].yaxis.set_major_formatter(ticker.StrMethodFormatter("{x:,.0f}"))
 
     else:
         _, axs = plt.subplots(1, 2, figsize=(8, 4), layout="tight")
