@@ -24,7 +24,8 @@ def run(num_people, max_ep_len, memory_capacity, args, seed):
             episode_length=max_ep_len,
             seed=seed,
             state_mode=args.state_mode,
-            p=[0.8, 0.8, 0.8, 0.8, 0.8],
+            # p will need to be added as an argument for reproducibility
+            p=[0.6, 0.7, 0.8, 0.9, 1.0],
             distribution=args.distribution,
             d_param1=args.d_param1,
             d_param2=args.d_param2,
@@ -324,9 +325,9 @@ def main():
     for i in range(num_exps):
         random.seed(seed)
         np.random.seed(seed + i + 1)
-        reward_t, donut_t = run(num_people, max_ep_len, memory_capacity, args, seed + i) # what if we are running donut?
+        reward_t, donut_t = run(num_people, max_ep_len, memory_capacity, args, seed + i) # what if we run lending?
         reward_list.append(reward_t)
-        donut_list.append(donut_t) # what if we are running donut?
+        donut_list.append(donut_t) # what if we run lending?
     save_plot_avg(reward_list, donut_list, args, num_exps, num_people, max_ep_len)
 
 
@@ -442,7 +443,7 @@ def save_plot_avg(
         + current_time
         + ".png"
     )
-    plt.show()
+    # plt.show()
 
 
 if __name__ == "__main__":

@@ -60,7 +60,8 @@ class Lending(gym.Env):
  
         if not wrong_action:
             self.loans[subg] += 1
-            self.memory[subg] += 1
+            # update memory
+            # self.memory[subg] += 1
             repayment = random.random()
             if repayment <= ((self.credit[action] + 2)/10):
                 self.success += 1
@@ -81,17 +82,18 @@ class Lending(gym.Env):
 
         obs = self.last_obs
 
-        if self.state_mode == "reset":
-            mn = min(self.memory)
-            for i in range(2):
-                self.memory[i] = self.memory[i] - mn
+        # memory update
+        # if self.state_mode == "reset":
+        #     mn = min(self.memory)
+        #     for i in range(2):
+        #         self.memory[i] = self.memory[i] - mn
 
-        elif self.state_mode == "equal":
-            mn = min(self.memory)
-            mx = max(self.memory)
-            if mn == mx:
-                for i in range(2):
-                    self.memory[i] = self.memory[i] - mn
+        # elif self.state_mode == "equal":
+        #     mn = min(self.memory)
+        #     mx = max(self.memory)
+        #     if mn == mx:
+        #         for i in range(2):
+        #             self.memory[i] = self.memory[i] - mn
 
         out_memory = self.binary_state(self.memory.copy(), self.episode_length + 1)
         out_success = self.binary_state([self.success], (self.episode_length + 1) * 2)

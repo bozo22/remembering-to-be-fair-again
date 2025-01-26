@@ -70,7 +70,6 @@ def run_Q_learning(episodes: int, alpha: float, epsilon: float, gamma: float, di
         cum_reward = 0
         while not done:
             epsilon = visited[state, memory]
-            print("State: ", state)
             avg.append(epsilon)
             if np.random.uniform(0, 1) < epsilon:
                 action = np.random.randint(0, fair_env.people)
