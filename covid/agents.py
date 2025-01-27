@@ -2,17 +2,19 @@ import torch
 import torch.nn as nn
 import numpy as np
 from numpy.typing import ArrayLike, NDArray
+from stable_baselines3 import SAC as SB3SAC
 from policies import MLPPolicy
 from argparse import Namespace
 from abc import ABC, abstractmethod
 from env import CovidSEIREnv
 from utils import ReplayMemory
+import gym
 
 
 class Agent(ABC):
 
     @abstractmethod
-    def choose_action(self, obs: NDArray, greedy: bool = False) -> int | np.ndarray:
+    def choose_action(self, obs: NDArray, greedy: bool = False) -> int | NDArray:
         """Choose an action given an observation.
 
         Args:
@@ -29,7 +31,7 @@ class Agent(ABC):
         self,
         state: NDArray,
         memory: NDArray,
-        action: int,
+        action: int | NDArray,
         reward: float,
         next_state: NDArray,
         next_memory: NDArray,
@@ -47,43 +49,43 @@ class Agent(ABC):
         ...
 
     @abstractmethod
-    def learn(self) -> float:
+    def learn(self) -> float | None:
         """Take a learning step.
 
         Returns:
-            float: The loss.
+            float | None: The loss (if applicable).
         """
         ...
 
-    @abstractmethod
-    def counterfactual_update(
-        self,
-        env: CovidSEIREnv,
-        state: NDArray,
-        action: int,
-        memory: NDArray,
-        next_state: NDArray,
-        max_ep_len: int,
-        schedule_step: int,
-        magnitude: int = 25_000_000,
-        n_counterfactuals: int = 10,
-        distribution: str = "uniform",
-    ) -> None:
-        """Perform a counterfactual update.
+    # @abstractmethod
+    # def counterfactual_update(
+    #     self,
+    #     env: CovidSEIREnv,
+    #     state: NDArray,
+    #     action: int,
+    #     memory: NDArray,
+    #     next_state: NDArray,
+    #     max_ep_len: int,
+    #     schedule_step: int,
+    #     magnitude: int = 25_000_000,
+    #     n_counterfactuals: int = 10,
+    #     distribution: str = "uniform",
+    # ) -> None:
+    #     """Perform a counterfactual update.
 
-        Args:
-            env (CovidSEIREnv): The environment.
-            state (NDArray): The current state.
-            action (int): The action taken.
-            memory (NDArray): The current memory.
-            next_state (NDArray): The next state.
-            max_ep_len (int): The maximum episode length.
-            schedule_step (int): The current vaccine schedule step.
-            magnitude (int, optional): The magnitude of the counterfactual update. Defaults to 25_000_000.
-            n_counterfactuals (int, optional): The number of counterfactuals to generate. Defaults to 10.
-            distribution (str, optional): The distribution to sample from. Defaults to "uniform".
-        """
-        ...
+    #     Args:
+    #         env (CovidSEIREnv): The environment.
+    #         state (NDArray): The current state.
+    #         action (int): The action taken.
+    #         memory (NDArray): The current memory.
+    #         next_state (NDArray): The next state.
+    #         max_ep_len (int): The maximum episode length.
+    #         schedule_step (int): The current vaccine schedule step.
+    #         magnitude (int, optional): The magnitude of the counterfactual update. Defaults to 25_000_000.
+    #         n_counterfactuals (int, optional): The number of counterfactuals to generate. Defaults to 10.
+    #         distribution (str, optional): The distribution to sample from. Defaults to "uniform".
+    #     """
+    #     ...
 
 
 class DQN(Agent):
@@ -163,11 +165,12 @@ class DQN(Agent):
         self,
         state: NDArray,
         memory: NDArray,
-        action: int,
+        action: int | NDArray,
         reward: float,
         next_state: NDArray,
         next_memory: NDArray,
     ) -> None:
+        action = int(action)
         self.replay_memory.store_transition(
             state, memory, action, reward, next_state, next_memory
         )
@@ -253,6 +256,54 @@ class DQN(Agent):
             )
 
 
+class SAC(Agent):
+
+    def __init__(
+        self,
+        env: CovidSEIREnv,
+        args: Namespace,
+        memory_capacity: int,
+        learning_rate: float,
+        device: torch.device | str,
+    ):
+        self.env = env
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.batch_size = args.batch_size
+        self.model = SB3SAC(
+            "MlpPolicy",
+            env,
+            verbose=0,
+            device=device,
+            buffer_size=memory_capacity,
+            learning_rate=learning_rate,
+        )
+        self.model._setup_learn(env.max_steps * args.episodes)
+
+    def choose_action(self, obs: NDArray, greedy: bool = False) -> NDArray:
+        return self.model.predict(obs, deterministic=greedy)[0]
+
+    def learn(self) -> None:
+        self.model.train(gradient_steps=1, batch_size=self.batch_size)
+
+    def store_transition(
+        self,
+        state: NDArray,
+        memory: NDArray,
+        action: int | NDArray,
+        reward: float,
+        next_state: NDArray,
+        next_memory: NDArray,
+    ) -> None:
+        assert self.model.replay_buffer is not None, "Replay buffer is not initialized"
+        obs = np.concatenate([state, memory])
+        next_obs = np.concatenate([next_state, next_memory])
+        action_a = np.array([action])
+        reward_a = np.array([reward])
+        done_a = np.array([False])
+        self.model.replay_buffer.add(obs, next_obs, action_a, reward_a, done_a, [{}])
+        pass
+
+
 class Random(Agent):
     def __init__(self, env: CovidSEIREnv):
         self.env = env
@@ -264,7 +315,7 @@ class Random(Agent):
         self,
         state: NDArray,
         memory: NDArray,
-        action: int,
+        action: int | NDArray,
         reward: float,
         next_state: NDArray,
         next_memory: NDArray,
@@ -273,18 +324,3 @@ class Random(Agent):
 
     def learn(self) -> float:
         return 0
-
-    def counterfactual_update(
-        self,
-        env: CovidSEIREnv,
-        state: NDArray,
-        action: int,
-        memory: NDArray,
-        next_state: NDArray,
-        max_ep_len: int,
-        schedule_step: int,
-        magnitude: int = 25_000_000,
-        n_counterfactuals: int = 10,
-        distribution: str = "uniform",
-    ) -> None:
-        pass

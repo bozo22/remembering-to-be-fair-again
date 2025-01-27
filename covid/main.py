@@ -9,7 +9,7 @@ import random
 from argparse import Namespace
 from gym.spaces import Discrete, Box
 from env import CovidSEIREnv
-from agents import Agent, DQN, Random
+from agents import Agent, DQN, SAC, Random
 
 
 def run(
@@ -62,12 +62,18 @@ def run(
         normalize_reward=True,
         normalize_obs=True,
         novax=args.novax,
+        continuous_actions=args.agent_type in ["sac", "random_cont"],
     )
 
-    assert type(env.action_space) == Discrete
     assert type(env.observation_space) == Box
-    num_actions = env.action_space.n
     num_states = env.observation_space.shape[0]
+
+    num_actions: int | None = None
+    if type(env.action_space) == Discrete:
+        num_actions = env.action_space.n
+    if type(env.action_space) == Box:
+        num_actions = env.action_space.shape[0]
+    assert num_actions is not None
 
     agent: Agent | None = None
     if args.agent_type == "dqn":
@@ -81,7 +87,15 @@ def run(
             args,
             # normalize=True,
         )
-    elif args.agent_type == "random":
+    elif args.agent_type == "sac":
+        agent = SAC(
+            env,
+            args,
+            memory_capacity,
+            args.lr,
+            device,
+        )
+    elif args.agent_type in ["random", "random_cont"]:
         agent = Random(env)
 
     assert agent is not None
@@ -171,7 +185,9 @@ def run(
         reward_buffer.append(ep_reward)
 
         # Set tqdm description
-        description = f"[EP {i+1}/{episodes}] Reward: {np.mean(reward_buffer):,.4f} | Loss: {np.mean(loss_buffer):.4f}"
+        description = f"[EP {i+1}/{episodes}] Reward: {np.mean(reward_buffer):,.4f}"
+        if type(agent) == DQN:
+            description += f" | Loss: {np.mean(loss_buffer):.4f}"
         if type(agent) == DQN:
             description += f" | Epsilon: {agent.epsilon:.2f}"
         if type(agent) == DQN:
@@ -196,10 +212,12 @@ def save_data(
         args (Namespace): Arguments.
     """
 
-    name = args.state_mode.capitalize()
+    name = args.agent_type.upper() + " " + args.state_mode.capitalize()
     if args.counterfactual:
         name = f"FairQCM ({name})"
     if args.agent_type == "random":
+        name = "Random"
+    if args.agent_type == "random_cont":
         name = "Random"
     if args.novax:
         name = f"NoVax"
@@ -338,8 +356,8 @@ if __name__ == "__main__":
     num_exps = args.num_exps
     reward_list = []
     infected_list = []
-    memory_capacity = 50_000 * (args.num_counterfactuals if args.counterfactual else 1)
-    device = "cpu"  # "cuda" if torch.cuda.is_available() else "cpu"
+    memory_capacity = 10_000 * (args.num_counterfactuals if args.counterfactual else 1)
+    device = "cuda" if torch.cuda.is_available() else "cpu"
     for i in range(num_exps):
         print(f"Experiment {i+1}/{num_exps}")
         random.seed(seed + i + 1)
