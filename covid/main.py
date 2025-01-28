@@ -11,6 +11,21 @@ from gym.spaces import Discrete, Box
 from env import CovidSEIREnv
 from agents import Agent, DQN, SAC, Random
 
+def set_seed(seed: int, env: CovidSEIREnv) -> None:
+    """Set the random seed for reproducibility.
+
+    Args:
+        seed (int): Random seed.
+    """
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+    try:
+        env.seed(seed)
+    except AttributeError:
+        pass
 
 def run(
     k: int,
@@ -64,6 +79,8 @@ def run(
         novax=args.novax,
         continuous_actions=args.agent_type in ["sac", "random_cont"],
     )
+
+    set_seed(seed, env)
 
     assert type(env.observation_space) == Box
     num_states = env.observation_space.shape[0]
@@ -235,6 +252,7 @@ def save_data(
             csv_writer.writerow(infected_list_all[i])
 
 
+
 if __name__ == "__main__":
     prs = argparse.ArgumentParser(
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
@@ -360,14 +378,14 @@ if __name__ == "__main__":
     device = "cuda" if torch.cuda.is_available() else "cpu"
     for i in range(num_exps):
         print(f"Experiment {i+1}/{num_exps}")
-        random.seed(seed + i + 1)
-        np.random.seed(seed + i + 1)
+        experiment_seed = seed + i + 1
         reward_t, infected_t = run(
             k=3,
             max_ep_len=24,
             memory_capacity=memory_capacity,
             device=device,
             args=args,
+            seed = experiment_seed,
         )
         reward_list.append(reward_t)
         infected_list.append(infected_t)
