@@ -25,10 +25,11 @@ def run(num_people, max_ep_len, memory_capacity, args, seed):
             seed=seed,
             state_mode=args.state_mode,
             # p will need to be added as an argument for reproducibility
-            p=[0.6, 0.7, 0.8, 0.9, 1.0],
+            p=[0.8, 0.8, 0.8, 0.8, 0.8],
             distribution=args.distribution,
             d_param1=args.d_param1,
             d_param2=args.d_param2,
+            zero_memory=args.zero_memory
         )
     else:
         env = Lending(
@@ -295,6 +296,14 @@ def main():
         default=None,
         required=False,
         help="Distribution parameter 2, comma-separated list of numbers\n",
+    )
+    prs.add_argument(
+        "-nomem",
+        dest="zero_memory",
+        type=bool,
+        default=False,
+        required=False,
+        help="Force zero memory\n",
     )
     prs.add_argument(
         "-des",

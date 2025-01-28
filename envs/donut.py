@@ -4,11 +4,12 @@ import numpy as np
 
 
 class Donut(gym.Env):
-    def __init__(self, people, episode_length, seed, state_mode="full", p=None, distribution=None, d_param1=None, d_param2=None):
+    def __init__(self, people, episode_length, seed, state_mode="full", p=None, distribution=None, d_param1=None, d_param2=None, zero_memory=False):
         # full: number of donuts for each person so far as a list [d1, d2, ...]
         # compact: full but as one number
         # binary: binary state of full
         # reset: number of donuts for person i - min number of donuts
+
         self.people = people
         self.seed = seed
         self.episode_length = episode_length
@@ -21,6 +22,7 @@ class Donut(gym.Env):
         self.distribution = distribution
         self.d_param1 = d_param1
         self.d_param2 = d_param2
+        self.zero_memory = zero_memory
 
         self.memory_space = gym.spaces.MultiBinary(
             np.power(self.episode_length + 1, self.people), seed=self.seed
@@ -101,13 +103,15 @@ class Donut(gym.Env):
         if not self.stochastic:
             drop = False
             self.donuts[action] += 1
-            self.memory[action] += 1
+            if not self.zero_memory:
+                self.memory[action] += 1
 
         else:
             if self.last_obs[action]:
                 drop = False
                 self.donuts[action] += 1
-                self.memory[action] += 1
+                if not self.zero_memory:
+                    self.memory[action] += 1
 
             for i in range(self.people):
                 p = random.random()
