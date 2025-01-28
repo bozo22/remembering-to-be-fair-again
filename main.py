@@ -29,7 +29,8 @@ def run(num_people, max_ep_len, memory_capacity, args, seed):
             distribution=args.distribution,
             d_param1=args.d_param1,
             d_param2=args.d_param2,
-            zero_memory=args.zero_memory
+            zero_memory=args.zero_memory,
+            reward_type=args.reward_type
         )
     else:
         env = Lending(
@@ -313,6 +314,16 @@ def main():
         required=False,
         help="Output file description\n",
     )
+    prs.add_argument(
+        "-rt", "--reward_type",
+        type=str,
+        default="nsw",
+        choices=["nsw", "utilitarian", "rawlsian", "egalitarian", "gini"],
+        help="Select the reward function to use: 'nsw' for Nash Social Welfare, "
+            "'utilitarian' for Utilitarian Welfare, 'rawlsian' for Rawlsian Welfare, "
+            "'egalitarian' for Egalitarian Welfare, "
+            "or 'gini' for Gini Coefficient based Social Welfare."
+    )
     args = prs.parse_args()
 
     num_people = 5 if args.env_type == "donut" else 4
@@ -355,6 +366,8 @@ def save_plot_avg(
         + str(num_people)
         + "-cf"
         + str(args.counterfactual)
+        + "-rt" 
+        + args.reward_type
         + "-"
         + current_time
         + ".csv"
@@ -422,7 +435,18 @@ def save_plot_avg(
         ci = 1.96 * std_donuts / np.sqrt(num_exps)
         ax[1].fill_between(x, (mean_donuts - ci), (mean_donuts + ci), alpha=0.3)
 
-        ax[0].set_ylabel("Sum of NSW")
+        # ax[0].set_ylabel("Sum of NSW")
+        if args.reward_type == 'nsw':
+            ylabel_text = "Sum of Nash Social Welfare"
+        elif args.reward_type == 'utilitarian':
+            ylabel_text = "Sum of Utilitarian Welfare"
+        elif args.reward_type == 'rawlsian':
+            ylabel_text = "Sum of Rawlsian Welfare"
+        elif args.reward_type == 'egalitarian':
+            ylabel_text = "Sum of Egalitarian Welfare"
+        elif args.reward_type == 'gini':
+            ylabel_text = "Sum of Gini Coefficient Welfare"
+        ax[0].set_ylabel(ylabel_text)
         ax[1].set_ylabel("Number of allocated donuts")
     else:
         fig, ax = plt.subplots(1, 1)
@@ -448,6 +472,8 @@ def save_plot_avg(
         + str(args.description)
         + "-cf"
         + str(args.counterfactual)
+        + "-rt" 
+        + args.reward_type
         + "-"
         + current_time
         + ".png"
