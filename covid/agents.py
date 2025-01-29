@@ -269,13 +269,16 @@ class SAC(Agent):
         self.env = env
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.batch_size = args.batch_size
+        # policy_kwargs = dict(activation_fn=nn.ReLU, net_arch=[32, 32])
         self.model = SB3SAC(
             "MlpPolicy",
             env,
             verbose=0,
+            # policy_kwargs=policy_kwargs,
             device=device,
             buffer_size=memory_capacity,
             learning_rate=learning_rate,
+            target_update_interval=args.q_network_iterations,
         )
         self.model._setup_learn(env.max_steps * args.episodes)
 

@@ -126,8 +126,8 @@ def run(
 
     for i in (t := tqdm(range(episodes))):
         obs, info = env.reset()
-        state = info["state"]
-        memory = info["memory"]
+        state = info["state"].copy()
+        memory = info["memory"].copy()
 
         while True:
             # Store step for CF update
@@ -136,8 +136,8 @@ def run(
             # Take step
             action = agent.choose_action(obs)
             next_obs, reward, done, _, info = env.step(action)
-            next_state = info["state"]
-            next_memory = info["memory"]
+            next_state = info["state"].copy()
+            next_memory = info["memory"].copy()
 
             # Store actual experience
             agent.store_transition(
@@ -362,6 +362,14 @@ if __name__ == "__main__":
         required=False,
         help="Disable vaccines\n",
     )
+    prs.add_argument(
+        "-device",
+        dest="device",
+        type=str,
+        default="cpu",
+        required=False,
+        help="Device (cpu or cuda)\n",
+    )
     args = prs.parse_args()
 
     # reward_t, donut_t, rewards_to_plot, infected_records = run(
@@ -375,7 +383,7 @@ if __name__ == "__main__":
     reward_list = []
     infected_list = []
     memory_capacity = 10_000 * (args.num_counterfactuals if args.counterfactual else 1)
-    device = "cuda" if torch.cuda.is_available() else "cpu"
+    device = args.device
     for i in range(num_exps):
         print(f"Experiment {i+1}/{num_exps}")
         experiment_seed = seed + i + 1

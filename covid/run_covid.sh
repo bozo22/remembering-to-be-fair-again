@@ -1,10 +1,16 @@
 NEXP=1
 EP=5000
 START=`date +%s`
-python main.py -nexp $NEXP -ep $EP -sm full -agent sac -bs 64 -lr 0.0001 # SAC
-python main.py -nexp $NEXP -ep $EP -sm full -agent random_cont # Random (continuous)
+
+# CONTINUOUS ENV, SAC AGENT
+python main.py -nexp $NEXP -ep $EP -sm full -agent sac -bs 64 -lr 0.0001 -qiter 250 # Full
+# python main.py -nexp $NEXP -ep $EP -sm min -agent sac -bs 64 -lr 0.0001 # Min
+# python main.py -nexp $NEXP -ep $EP -sm reset -agent sac -bs 64 -lr 0.0001 # Reset
+# python main.py -nexp $NEXP -ep $EP -sm none -agent sac -bs 64 -lr 0.0001 # None
+# python main.py -nexp $NEXP -ep $EP -sm full -agent random_cont # Random
 # python main.py -nexp 1 -ep $EP -sm full -agent random_cont -novax True # NoVax
 
+# DISCRETE ENV, DQN AGENT
 # python main.py -nexp $NEXP -ep $EP -sm full -bs 64 -lr 0.0001 -qiter 500 # Full
 # python main.py -nexp $NEXP -ep $EP -sm full -agent random # Random
 # python main.py -nexp 1 -ep $EP -sm full -agent random -novax True # NoVax

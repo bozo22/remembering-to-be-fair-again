@@ -290,6 +290,7 @@ class CovidSEIREnv(gym.Env):
         # We'll reshape it into (k,4) for clarity in calculations
         # region_state[i] = [S, E, I, R] for region i
         region_state = state[:-1].reshape((self.k, 4))
+        infected = region_state[:, 0].copy()
 
         # allocation = best_alloc * total_vaccines
 
@@ -317,7 +318,7 @@ class CovidSEIREnv(gym.Env):
         E_new = np.zeros(self.k, dtype=np.float32)
         I_new = np.zeros(self.k, dtype=np.float32)
         R_new = np.zeros(self.k, dtype=np.float32)
-        infected = region_state[:, 2].copy()
+        newly_infected = np.zeros(self.k, dtype=np.float32)
 
         for i in range(self.k):
             S_i, E_i, I_i, R_i = region_state[i]
@@ -337,13 +338,14 @@ class CovidSEIREnv(gym.Env):
             E_new[i] = E_i + dE
             I_new[i] = I_i + dI
             R_new[i] = R_i + dR
+            newly_infected[i] = sigma_i * E_i
 
         # Ensure fractions stay in [0, population]
         S_new = np.clip(S_new, 0.0, self.population)
         E_new = np.clip(E_new, 0.0, self.population)
         I_new = np.clip(I_new, 0.0, self.population)
         R_new = np.clip(R_new, 0.0, self.population)
-        infected = I_new - infected
+        infected = S_new - infected
 
         # Recombine
         region_state = np.stack([S_new, E_new, I_new, R_new], axis=1).flatten()
@@ -360,7 +362,7 @@ class CovidSEIREnv(gym.Env):
 
         # Info dictionary for debugging
         info = {
-            "new_infected": np.sum(infected),
+            "new_infected": np.sum(newly_infected),
             "vaccines_allocated": allocation,
         }
 
@@ -407,7 +409,7 @@ class CovidSEIREnv(gym.Env):
 
         # Update state and memory
         self.state = new_state.copy()
-        self.memory = new_memory
+        self.memory = new_memory.copy()
 
         # Episode termination condition
         self.current_step += 1
@@ -421,10 +423,10 @@ class CovidSEIREnv(gym.Env):
 
         # Save separate state and memory
         info["state"] = state.copy()
-        info["memory"] = memory
+        info["memory"] = memory.copy()
 
         # Concat state and memory for observation
-        obs = np.concatenate((state, memory))
+        obs = np.concatenate([state, memory])
 
         return obs, float(reward), done, False, info
 
