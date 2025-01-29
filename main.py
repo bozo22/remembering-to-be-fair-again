@@ -4,6 +4,8 @@ import matplotlib
 import numpy as np
 import torch
 import torch.nn as nn
+# dat doprdele
+import pickle
 from envs.donut import Donut
 from envs.lending import Lending
 import argparse
@@ -23,7 +25,12 @@ def run(num_people, max_ep_len, memory_capacity, args, seed):
             episode_length=max_ep_len,
             seed=seed,
             state_mode=args.state_mode,
-            p=[0.8, 0.8, 0.8, 0.8, 0.8],
+            p=args.p,
+            distribution=args.distribution,
+            d_param1=args.d_param1,
+            d_param2=args.d_param2,
+            zero_memory=args.zero_memory,
+            reward_type=args.reward_type
         )
     else:
         env = Lending(
@@ -31,7 +38,7 @@ def run(num_people, max_ep_len, memory_capacity, args, seed):
             episode_length=max_ep_len,
             seed=seed,
             state_mode=args.state_mode,
-            p=[0.9, 0.9, 0.9, 0.9, 0.9],
+            p=args.p,
         )
 
     num_actions = env.action_space.n
@@ -104,6 +111,7 @@ def run(num_people, max_ep_len, memory_capacity, args, seed):
                     actual_memory,
                     max_ep_len,
                     args.state_mode,
+                    args.nupds,
                 )
             ep_reward += reward
             if reward != 0:
@@ -266,13 +274,80 @@ def main():
         required=True,
         help="Network Type\n",
     )
+    prs.add_argument(
+        "-dis",
+        dest="distribution",
+        type=str,
+        default=None,
+        required=False,
+        choices=["logistic", "bell", "uniform-interval"],
+        help="Distribution\n",
+    )
+    prs.add_argument(
+        "-d1",
+        dest="d_param1",
+        type=str,
+        default=None,
+        required=False,
+        help="Distribution parameter 1, comma-separated list of numbers\n",
+    )
+    prs.add_argument(
+        "-d2",
+        dest="d_param2",
+        type=str,
+        default=None,
+        required=False,
+        help="Distribution parameter 2, comma-separated list of numbers\n",
+    )
+    prs.add_argument(
+        "-p",
+        dest="p",
+        type=str,
+        default=None,
+        required=False,
+        help="Probability of customer arrival/loan application, comma-separated list of floats\n"
+    )
+    prs.add_argument(
+        "-nomem",
+        dest="zero_memory",
+        type=bool,
+        default=False,
+        required=False,
+        help="Force zero memory\n",
+    )
+    prs.add_argument(
+        "-nupds", 
+        dest="nupds", 
+        type=int, 
+        default=2, 
+        required=False,
+        help="Number of counterfactual timesteps\n"
+    )
+    prs.add_argument(
+        "-des",
+        dest="description",
+        type=str,
+        default="",
+        required=False,
+        help="Output file description\n",
+    )
+    prs.add_argument(
+        "-rt", "--reward_type",
+        type=str,
+        default="nsw",
+        choices=["nsw", "utilitarian", "rawlsian", "egalitarian", "gini"],
+        help="Select the reward function to use: 'nsw' for Nash Social Welfare, "
+            "'utilitarian' for Utilitarian Welfare, 'rawlsian' for Rawlsian Welfare, "
+            "'egalitarian' for Egalitarian Welfare, "
+            "or 'gini' for Gini Coefficient based Social Welfare."
+    )
     args = prs.parse_args()
 
     seed = 2024
     if args.env_type == "donut":
         num_people = 5
         max_ep_len = 100
-        memory_capacity = 400
+        memory_capacity = 400 #check!
         if args.counterfactual:
             memory_capacity = 6400
         elif args.net_type == "rnn":
@@ -290,6 +365,15 @@ def main():
     #     args.batch_size = args.batch_size * np.power(2, num_people)
     #     memory_capacity *= np.power(2, num_people - 1)
 
+    if args.d_param1 and args.d_param2:
+        args.d_param1 = [float(x) for x in args.d_param1.split(",")]
+        args.d_param2 = [float(x) for x in args.d_param2.split(",")]
+
+    if args.p:
+        args.p = [float(x) for x in args.p.split(",")]
+    else:
+        args.p =  [0.8, 0.8, 0.8, 0.8, 0.8] if args.env_type == "donut" else [0.9, 0.9, 0.9, 0.9, 0.9]
+
     num_exps = args.num_exps
     reward_list = []
     donut_list = []
@@ -297,9 +381,9 @@ def main():
         print(f"Experiment {i+1}/{num_exps}")
         random.seed(seed)
         np.random.seed(seed + i + 1)
-        reward_t, donut_t = run(num_people, max_ep_len, memory_capacity, args, seed + i)
+        reward_t, donut_t = run(num_people, max_ep_len, memory_capacity, args, seed + i) # what if we run lending?
         reward_list.append(reward_t)
-        donut_list.append(donut_t)
+        donut_list.append(donut_t) # what if we run lending?
     save_plot_avg(reward_list, donut_list, args, num_exps, num_people, max_ep_len)
 
 
@@ -321,8 +405,8 @@ def save_plot_avg(
         name = "FairQCM"
     if args.net_type == "rnn":
         name = "RNN"
-    rewards_dataset_path = f"datasets/{args.env_type}/{name}.csv"
-    donuts_dataset_path = f"datasets/{args.env_type}/{name}_donuts.csv"
+    rewards_dataset_path = f"datasets/{args.env_type}/{name}_{args.description}.csv"
+    donuts_dataset_path = f"datasets/{args.env_type}/{name}_{args.description}_donuts.csv"
 
     with open(rewards_dataset_path, "w", newline="") as csv_file:
         csv_writer = csv.writer(csv_file)
@@ -337,7 +421,6 @@ def save_plot_avg(
 
     reward_list_all = np.array(reward_list_all)
     donuts_list_all = np.array(donuts_list_all)
-
     interv = 10
     reward_list = []
     donuts_list = []
@@ -375,7 +458,17 @@ def save_plot_avg(
         ci = 1.96 * std_donuts / np.sqrt(num_exps)
         ax[1].fill_between(x, (mean_donuts - ci), (mean_donuts + ci), alpha=0.3)
 
-        ax[0].set_ylabel("Sum of NSW")
+        if args.reward_type == 'nsw':
+            ylabel_text = "Sum of Nash Social Welfare"
+        elif args.reward_type == 'utilitarian':
+            ylabel_text = "Sum of Utilitarian Welfare"
+        elif args.reward_type == 'rawlsian':
+            ylabel_text = "Sum of Rawlsian Welfare"
+        elif args.reward_type == 'egalitarian':
+            ylabel_text = "Sum of Egalitarian Welfare"
+        elif args.reward_type == 'gini':
+            ylabel_text = "Sum of Gini Coefficient Welfare"
+        ax[0].set_ylabel(ylabel_text)
         ax[1].set_ylabel("Number of allocated donuts")
     else:
         fig, ax = plt.subplots(1, 1)
@@ -397,13 +490,17 @@ def save_plot_avg(
         + args.net_type
         + "-DQN"
         + args.state_mode
+        + "-des"
+        + str(args.description)
         + "-cf"
         + str(args.counterfactual)
+        + "-rt" 
+        + args.reward_type
         + "-"
         + current_time
         + ".png"
     )
-    plt.show()
+    # plt.show()
 
 
 if __name__ == "__main__":

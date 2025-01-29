@@ -9,6 +9,25 @@ matplotlib.use("Agg")
 
 
 def plot_data(env, ax, smooth, root, data_type="reward"):
+    name_mapping = {
+        "Fullprob": ("tab:blue", "Full"),
+        "Fulldonuts": ("tab:blue", "Full"),
+        "Full": ("tab:blue", "Full"),
+        "FairQCMprob": ("tab:orange", "FairQCM"),
+        "FairQCMdonuts": ("tab:orange", "FairQCM"),
+        "FairQCM": ("tab:orange", "FairQCM"),
+        "Minprob": ("tab:green", "Min"),
+        "Mindonuts": ("tab:green", "Min"),
+        "Min": ("tab:green", "Min"),
+        "Resetprob": ("tab:red", "Reset"),
+        "Resetdonuts": ("tab:red", "Reset"),
+        "Reset": ("tab:red", "Reset"),
+        "RNNprob": ("tab:purple", "RNN"),
+        "RNNdonuts": ("tab:purple", "RNN"),
+        "RNN": ("tab:purple", "RNN"),
+        "NoMemoryprob": ("tab:brown", "No Memory"),
+        "NoMemorydonuts": ("tab:brown", "No Memory"),
+    }
     for filename in sorted(os.listdir(f"{root}/{env}")):
         if not filename.endswith(f"{data_type}.csv"):
             continue

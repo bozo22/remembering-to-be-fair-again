@@ -1,0 +1,1 @@
+python main.py -ep 500 -bs 64 -nexp 10 -sm binary -env donut -net linear -rt gini
