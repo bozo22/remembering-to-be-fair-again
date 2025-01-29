@@ -4,6 +4,7 @@ import matplotlib
 import numpy as np
 import torch
 import torch.nn as nn
+# dat doprdele
 import pickle
 from envs.donut import Donut
 from envs.lending import Lending
@@ -25,8 +26,7 @@ def run(num_people, max_ep_len, memory_capacity, args, seed):
             episode_length=max_ep_len,
             seed=seed,
             state_mode=args.state_mode,
-            # p will need to be added as an argument for reproducibility
-            p=[0.8, 0.8, 0.8, 0.8, 0.8],
+            p=args.p,
             distribution=args.distribution,
             d_param1=args.d_param1,
             d_param2=args.d_param2,
@@ -39,7 +39,7 @@ def run(num_people, max_ep_len, memory_capacity, args, seed):
             episode_length=max_ep_len,
             seed=seed,
             state_mode=args.state_mode,
-            p=[0.9, 0.9, 0.9, 0.9, 0.9],
+            p=args.p,
         )
 
     num_actions = env.action_space.n
@@ -301,6 +301,14 @@ def main():
         help="Distribution parameter 2, comma-separated list of numbers\n",
     )
     prs.add_argument(
+        "-p",
+        dest="p",
+        type=str,
+        default=None,
+        required=False,
+        help="Probability of customer arrival/loan application, comma-separated list of floats\n"
+    )
+    prs.add_argument(
         "-nomem",
         dest="zero_memory",
         type=bool,
@@ -314,7 +322,7 @@ def main():
         type=int, 
         default=2, 
         required=False,
-        help="Number of counterfactual timesteps\n"
+        help="Number of counterfactual timesteps\n"
     )
     prs.add_argument(
         "-des",
@@ -349,6 +357,11 @@ def main():
         args.d_param1 = [float(x) for x in args.d_param1.split(",")]
         args.d_param2 = [float(x) for x in args.d_param2.split(",")]
 
+    if args.p:
+        args.p = [float(x) for x in args.p.split(",")]
+    else:
+        args.p =  [0.8, 0.8, 0.8, 0.8, 0.8] if args.env_type == "donut" else [0.9, 0.9, 0.9, 0.9, 0.9]
+
     num_exps = args.num_exps
     reward_list = []
     donut_list = []
@@ -364,55 +377,32 @@ def main():
 def save_plot_avg(
     reward_list_all, donuts_list_all, args, num_exps, num_people, max_ep_len
 ):
-    if args.counterfactual:
-        with open(f"rewards_with_cf_{args.nupds}.pkl", "wb") as f:
-            pickle.dump(reward_list_all, f)
-        with open(f"num_donuts_with_cf_{args.nupds}.pkl", "wb") as f:
-            pickle.dump(donuts_list_all, f)
-    
-    pathprefix = (
-        "./datasets/" + args.net_type + "-" + args.env_type + "-dqn/" + args.state_mode
-    )
-    rewards_dataset_paths = (
-        pathprefix
-        + "-des"
-        + str(args.description)
-        + "-people"
-        + str(num_people)
-        + "-cf"
-        + str(args.counterfactual)
-        + "-rt" 
-        + args.reward_type
-        + "-"
-        + current_time
-        + ".csv"
-    )
 
-    with open(rewards_dataset_paths, "w", newline="") as csv_file:
+    name = "Full"
+    if args.state_mode in ["reset-binary", "reset"]:
+        name = "Min"
+    if args.state_mode == "equal-binary":
+        name = "Reset"
+    if args.counterfactual:
+        name = "FairQCM"
+    if args.net_type == "rnn":
+        name = "RNN"
+    rewards_dataset_path = f"datasets/{args.env_type}/{name}_{args.description}.csv"
+    donuts_dataset_path = f"datasets/{args.env_type}/{name}_{args.description}_donuts.csv"
+
+    with open(rewards_dataset_path, "w", newline="") as csv_file:
         csv_writer = csv.writer(csv_file)
-        csv_writer.writerow(
-            ["episodes", "people", "maxeplen", "learning rate", "batch size"]
-        )
-        csv_writer.writerow(
-            [
-                str(args.episodes),
-                str(num_people),
-                str(max_ep_len),
-                str(args.lr),
-                str(args.batch_size),
-            ]
-        )
         for i in range(num_exps):
             csv_writer.writerow(reward_list_all[i])
-            csv_writer.writerow([""])
-            if args.env_type == "donut":
+
+    if args.env_type == "donut":
+        with open(donuts_dataset_path, "w", newline="") as csv_file:
+            csv_writer = csv.writer(csv_file)
+            for i in range(num_exps):
                 csv_writer.writerow(donuts_list_all[i])
-            else:
-                csv_writer.writerow(" ")
 
     reward_list_all = np.array(reward_list_all)
     donuts_list_all = np.array(donuts_list_all)
-
     interv = 10
     reward_list = []
     donuts_list = []
@@ -450,7 +440,6 @@ def save_plot_avg(
         ci = 1.96 * std_donuts / np.sqrt(num_exps)
         ax[1].fill_between(x, (mean_donuts - ci), (mean_donuts + ci), alpha=0.3)
 
-        # ax[0].set_ylabel("Sum of NSW")
         if args.reward_type == 'nsw':
             ylabel_text = "Sum of Nash Social Welfare"
         elif args.reward_type == 'utilitarian':
