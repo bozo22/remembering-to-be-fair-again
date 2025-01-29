@@ -35,4 +35,4 @@ def split_csv_by_data_type(input_file, integers_file, floats_file):
     pd.DataFrame(floats_list).to_csv(floats_file, index=False, header=False)
 
 # Example usage:
-split_csv_by_data_type('datasets/linear-donut-dqn/reset-binary-desCHANGED-PROBS-people5-cfFalse-20250124_231503.csv', 'datasets/constant_prob_donut/Mindonuts.csv', 'datasets/constant_prob_donut/Minprob.csv')
+split_csv_by_data_type('datasets/donut/binary-desNO-MEMORY-people5-cfFalse-rtnsw-20250128_185736.csv', 'datasets/donut/NoMemorydonuts.csv', 'datasets/donut/NoMemoryprob.csv')

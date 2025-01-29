@@ -4,6 +4,7 @@ import matplotlib
 import numpy as np
 import torch
 import torch.nn as nn
+import pickle
 from envs.donut import Donut
 from envs.lending import Lending
 import argparse
@@ -111,6 +112,7 @@ def run(num_people, max_ep_len, memory_capacity, args, seed):
                     actual_memory,
                     max_ep_len,
                     args.state_mode,
+                    args.nupds,
                 )
             ep_reward += reward
             if reward != 0:
@@ -307,6 +309,14 @@ def main():
         help="Force zero memory\n",
     )
     prs.add_argument(
+        "-nupds", 
+        dest="nupds", 
+        type=int, 
+        default=2, 
+        required=False,
+        help="Number of counterfactual timesteps\n"
+    )
+    prs.add_argument(
         "-des",
         dest="description",
         type=str,
@@ -354,7 +364,12 @@ def main():
 def save_plot_avg(
     reward_list_all, donuts_list_all, args, num_exps, num_people, max_ep_len
 ):
-
+    if args.counterfactual:
+        with open(f"rewards_with_cf_{args.nupds}.pkl", "wb") as f:
+            pickle.dump(reward_list_all, f)
+        with open(f"num_donuts_with_cf_{args.nupds}.pkl", "wb") as f:
+            pickle.dump(donuts_list_all, f)
+    
     pathprefix = (
         "./datasets/" + args.net_type + "-" + args.env_type + "-dqn/" + args.state_mode
     )

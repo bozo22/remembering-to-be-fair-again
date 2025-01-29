@@ -24,6 +24,8 @@ def plot_data(env, ax, donuts=False):
         "RNNprob": ("tab:purple", "RNN"),
         "RNNdonuts": ("tab:purple", "RNN"),
         "RNN": ("tab:purple", "RNN"),
+        "NoMemoryprob": ("tab:brown", "No Memory"),
+        "NoMemorydonuts": ("tab:brown", "No Memory"),
     }
 
     for filename in os.listdir(f"datasets/{env}"):
@@ -37,6 +39,7 @@ def plot_data(env, ax, donuts=False):
             continue
 
         data = np.genfromtxt(f"datasets/{env}/" + filename, delimiter=",")
+        # data = data[:, :500]
 
         def average_over_episodes(data, window_size=10):
             num_points = data.shape[1]
