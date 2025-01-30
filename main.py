@@ -405,7 +405,7 @@ def save_plot_avg(
         name = "FairQCM"
     if args.net_type == "rnn":
         name = "RNN"
-    rewards_dataset_path = f"datasets/{args.env_type}/{name}_{args.description}.csv"
+    rewards_dataset_path = f"datasets/{args.env_type}/{name}_{args.description}_reward.csv"
     donuts_dataset_path = f"datasets/{args.env_type}/{name}_{args.description}_donuts.csv"
 
     with open(rewards_dataset_path, "w", newline="") as csv_file:

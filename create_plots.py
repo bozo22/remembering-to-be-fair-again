@@ -9,32 +9,14 @@ matplotlib.use("Agg")
 
 
 def plot_data(env, ax, smooth, root, data_type="reward"):
-    name_mapping = {
-        "Fullprob": ("tab:blue", "Full"),
-        "Fulldonuts": ("tab:blue", "Full"),
-        "Full": ("tab:blue", "Full"),
-        "FairQCMprob": ("tab:orange", "FairQCM"),
-        "FairQCMdonuts": ("tab:orange", "FairQCM"),
-        "FairQCM": ("tab:orange", "FairQCM"),
-        "Minprob": ("tab:green", "Min"),
-        "Mindonuts": ("tab:green", "Min"),
-        "Min": ("tab:green", "Min"),
-        "Resetprob": ("tab:red", "Reset"),
-        "Resetdonuts": ("tab:red", "Reset"),
-        "Reset": ("tab:red", "Reset"),
-        "RNNprob": ("tab:purple", "RNN"),
-        "RNNdonuts": ("tab:purple", "RNN"),
-        "RNN": ("tab:purple", "RNN"),
-        "NoMemoryprob": ("tab:brown", "No Memory"),
-        "NoMemorydonuts": ("tab:brown", "No Memory"),
-    }
+    avg_stds = []
     for filename in sorted(os.listdir(f"{root}/{env}")):
         if not filename.endswith(f"{data_type}.csv"):
             continue
 
         # Load data from file:
         data = np.genfromtxt(f"{root}/{env}/" + filename, delimiter=",")
-
+        data = data[:,:500]
         name = filename.split(".")[0].split("_")[0]
 
         # Smooth data
@@ -47,15 +29,22 @@ def plot_data(env, ax, smooth, root, data_type="reward"):
             .reshape(exps, -1)
         )
 
+        avg_std = data.std(axis=0).mean()
+        avg_stds.append((name, avg_std))
+
         # Plot
         xx = np.arange(0, vals, smooth)
-        ax.plot(xx, data.mean(axis=0), label=name)
-        ax.fill_between(
-            xx,
-            data.mean(axis=0) - data.std(axis=0),
-            data.mean(axis=0) + data.std(axis=0),
-            alpha=0.2,
-        )
+        ax.plot(xx, data.mean(axis=0), label=name, linewidth=3, alpha=0.9)
+        # ax.fill_between(
+        #     xx,
+        #     data.mean(axis=0) - data.std(axis=0),
+        #     data.mean(axis=0) + data.std(axis=0),
+        #     alpha=0.1,
+        # )
+    print("Average Standard Deviations per Baseline:")
+    for name, avg_std in avg_stds:
+        print(f"{name}: {avg_std:.4f}")
+    
 
 
 def create_plots(env, smooth, root):
