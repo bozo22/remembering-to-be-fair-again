@@ -57,9 +57,9 @@ def run(
     vaccine_schedule = (np.arange(1, max_ep_len + 1) ** 2 * 0.08) * 3_000_000
     # vaccine_schedule = [1_000_000_000 / max_ep_len] * max_ep_len
     infected_records = np.ones((args.episodes, max_ep_len, k))
-    init_state_0 = [0.99, 0.01, 0.0, 0.0]
-    init_state_1 = [0.8, 0.1, 0.1, 0.0]
-    init_state_2 = [0.75, 0.1, 0.15, 0.0]
+    init_state_0 = [0.8, 0.2, 0.0, 0.0]
+    init_state_1 = [0.9, 0.1, 0.0, 0.0]
+    init_state_2 = [0.99, 0.01, 0.0, 0.0]
     init_states = np.array([init_state_0, init_state_1, init_state_2])
 
     # Values from https://arxiv.org/pdf/2005.12777
@@ -136,8 +136,10 @@ def run(
         step = 0
 
         while True:
-            # Store step for CF update
+            # Store info for CF update
             schedule_step = env.current_step
+            actual_state = env.state.copy()
+            actual_memory = env.memory.copy()
 
             # Take step
             action = agent.choose_action(obs)
@@ -153,13 +155,19 @@ def run(
             # Store counterfactual experiences
             if args.counterfactual:
                 cf_transitions = env.get_counterfactual_transitions(
-                    state, action, memory, schedule_step, 10
+                    state,
+                    actual_state,
+                    action,
+                    memory,
+                    actual_memory,
+                    schedule_step,
+                    args.num_counterfactuals,
                 )
                 for transition in cf_transitions:
                     agent.store_transition(*transition)
 
             # Learn
-            if step % 10 == 0:
+            if step % 5 == 0:
                 loss = agent.learn()
                 loss_buffer.append(loss)
             if done:
@@ -202,9 +210,14 @@ def run(
             state = next_state
             memory = next_memory
             if done:
-                ep_memory = memory
+                utility_vaccines = (
+                    (memory / memory.sum()) - (env.population / env.population.sum())
+                    if memory.sum() > 0
+                    else np.zeros_like(memory)
+                )
+                ep_memory = utility_vaccines
                 break
-            if (i + 1) % 350 == 0:
+            if (i + 1) % 500 == 0:
                 print(action)
                 env.render()
 
@@ -250,7 +263,7 @@ def save_data(
 
     name = args.state_mode.capitalize()
     if args.counterfactual:
-        name = f"FairQCM ({name})"
+        name = f"FairSCM ({name})"
     if args.agent_type == "random":
         name = "Random"
     if args.agent_type == "random_cont":
@@ -406,7 +419,7 @@ if __name__ == "__main__":
     reward_list = []
     infected_list = []
     memory_list = []
-    memory_capacity = 50_000 * (args.num_counterfactuals if args.counterfactual else 1)
+    memory_capacity = 5_000 * (args.num_counterfactuals if args.counterfactual else 1)
     device = args.device
     for i in range(num_exps):
         print(f"Experiment {i+1}/{num_exps}")

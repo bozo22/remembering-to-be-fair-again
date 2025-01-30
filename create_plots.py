@@ -26,23 +26,46 @@ def plot_data(env, ax, smooth, root, data_type="reward"):
             .reshape(exps, -1)
         )
 
+            # Plot
+            xx = np.arange(0, vals, smooth)
+            ax.plot(xx, data.mean(axis=0), label=name)
+            ax.fill_between(
+                xx,
+                data.mean(axis=0) - data.std(axis=0),
+                data.mean(axis=0) + data.std(axis=0),
+                alpha=0.2,
+            )
+        elif filename.endswith(f"{data_type}.pkl"):
+            data = pickle.load(open(f"{root}/{env}/" + filename, "rb"))
+            name = filename.split(".")[0].split("_")[0]
 
-        avg_std = data.std(axis=0).mean()
-        avg_stds.append((name, avg_std))
+            # Smooth data
+            if data.ndim == 2:
+                data = data.reshape(1, data.shape[0], data.shape[1])
+            exps, eps, regions = data.shape
+            data = data.transpose(2, 0, 1)
 
-        # Plot
-        xx = np.arange(0, vals, smooth)
-        ax.plot(xx, data.mean(axis=0), label=name, linewidth=3, alpha=0.9)
-        # ax.fill_between(
-        #     xx,
-        #     data.mean(axis=0) - data.std(axis=0),
-        #     data.mean(axis=0) + data.std(axis=0),
-        #     alpha=0.1,
-        # )
-    print("Average Standard Deviations per Baseline:")
-    for name, avg_std in avg_stds:
-        print(f"{name}: {avg_std:.4f}")
-    
+            # Plot
+            for i in range(regions):
+
+                data_i = (
+                    data[i]
+                    .reshape(exps, -1, smooth)
+                    .mean(axis=2, keepdims=True)
+                    # .repeat(smooth, axis=2)
+                    .reshape(exps, -1)
+                )
+
+                xx = np.arange(0, eps, smooth)
+                ax.plot(xx, data_i.mean(axis=0), label="Region " + str(i + 1))
+                ax.fill_between(
+                    xx,
+                    data_i.mean(axis=0) - data_i.std(axis=0),
+                    data_i.mean(axis=0) + data_i.std(axis=0),
+                    alpha=0.2,
+                )
+        else:
+            continue
 
 
 def create_plots(env, smooth, root):
@@ -55,6 +78,7 @@ def create_plots(env, smooth, root):
         ax.set_ylabel("Accumulated Relaxed DP")
 
     elif env == "covid":
+        # Comparing baselines
         _, axs = plt.subplots(1, 3, figsize=(12, 4), layout="tight")
         plot_data(env, axs[0], smooth, root, data_type="reward")
         plot_data(env, axs[1], smooth, root, data_type="infected")
@@ -65,8 +89,8 @@ def create_plots(env, smooth, root):
             ax.set_xlabel("Number of episodes")
 
         axs[0].set_ylabel("Cumulative reward")
-        axs[1].set_ylabel("Number of infected people")
-        axs[2].set_ylabel("% of vaccines allocated")
+        axs[1].set_ylabel("Number of infected people (across all regions)")
+        axs[2].set_ylabel("Vaccine allocation imbalance")
         axs[1].ticklabel_format(useOffset=False, style="plain")
         axs[1].yaxis.set_major_formatter(ticker.StrMethodFormatter("{x:,.0f}"))
 

@@ -205,21 +205,8 @@ class CovidSEIREnv(gym.Env):
         Returns:
             NDArray: The normalized state.
         """
-        # state_s = state[:-1].reshape((self.k, 4))[:, 0]
-        # state_v = state[-1]
-        # state = np.concatenate([state_s, [state_v]])
-        return state / np.sum(self.population)
 
-        # Scale each region's compartments by the population
-        region_state = state[:-1].reshape((self.k, 4))
-        region_state_normalized = (
-            region_state / self.population[:, np.newaxis]
-        ).flatten()
-
-        # Scale number of vaccines by population
-        vaccines_normalized = state[-1] / np.sum(self.population)
-
-        return np.concatenate([region_state_normalized, [vaccines_normalized]])
+        return state / np.sum(self.population) if self.normalize_obs else state
 
     def get_reward(
         self, state: NDArray, memory: NDArray, new_exposed: NDArray
@@ -233,12 +220,16 @@ class CovidSEIREnv(gym.Env):
         """
 
         # Utility
-        utility_exposed = 1 - new_exposed / self.population
-        utility_vaccines = memory / memory.sum() if memory.sum() > 0 else 1 / self.k
-        utility = 0.5 * utility_exposed + 0.5 * utility_vaccines
+        utility_exposed = -new_exposed / self.population.sum()
+        utility_vaccines = (
+            (memory / memory.sum()) - (self.population / self.population.sum())
+            if memory.sum() > 0
+            else np.zeros_like(memory)
+        )
+        utility = utility_exposed + 0.04 * utility_vaccines
 
-        # Aggregation: Nash Social Welfare
-        reward = utility.prod()
+        # Aggregation: Rawlsian
+        reward = utility.min()
 
         return reward
 
@@ -300,17 +291,16 @@ class CovidSEIREnv(gym.Env):
         susceptible = region_state[:, 1].copy()
 
         # allocation = best_alloc * total_vaccines
-        used_vax = 0
+        used_vaccines = np.zeros(self.k, dtype=np.float32)
         # -- 2. Vaccinate (move from S -> R) --
         if not self.novax:
             for i in range(self.k):
                 max_possible_vaccines = region_state[i, 0]  # S compartment
-                used_vaccines = min(allocation[i], max_possible_vaccines)
-                used_vax += used_vaccines
+                used_vaccines[i] = min(allocation[i], max_possible_vaccines)
 
                 # Move from S -> R
-                region_state[i, 0] -= used_vaccines  # S
-                region_state[i, 3] += used_vaccines  # R
+                region_state[i, 0] -= used_vaccines[i]  # S
+                region_state[i, 3] += used_vaccines[i]  # R
 
                 # Clip to ensure no numeric drift
                 region_state[i, 0] = np.clip(
@@ -366,14 +356,15 @@ class CovidSEIREnv(gym.Env):
             else self.vaccine_schedule[schedule_step + 1]
         )
         new_state = np.concatenate([region_state_flat, [vaccines]])
-        new_memory = memory + allocation
+        new_memory = memory + used_vaccines
 
         # -- 4. Reward: e.g., negative sum of suscepted fractions across all k regions --
-        reward = self.get_reward(new_state, new_memory, newly_exposed + newly_infected)
+        reward = self.get_reward(new_state, new_memory, newly_exposed)
         # reward = -np.abs(np.array([1.0, 0.0, 0.0]) - action).sum()
         # reward = -np.abs(susceptible / self.population.sum() - action).sum()
         # reward = -newly_exposed.sum() / self.population.sum()
         # reward = -newly_infected.sum() / self.population.sum()
+        # reward = -newly_exposed.sum() / self.population.sum()
 
         # Info dictionary for debugging
         info = {
@@ -386,24 +377,63 @@ class CovidSEIREnv(gym.Env):
     def get_counterfactual_transitions(
         self,
         state: NDArray,
+        actual_state: NDArray,
         action: int | NDArray,
         memory: NDArray,
+        actual_memory: NDArray,
         schedule_step: int,
         n_counterfactuals: int,
+        distribution: str = "uniform",
+        magnitude: float = 10_000_000,
     ) -> list[tuple[NDArray, NDArray, int, float, NDArray, NDArray]]:
         """Generate counterfactual transitions.
 
         Args:
-            state (NDArray): The state.
+            state (NDArray): The state (as the agent sees it).
+            actual_state (NDArray): The state (as it is represented in the env).
             action (int): The action.
-            memory (NDArray): The memory.
+            memory (NDArray): The memory (as the agent sees it).
+            actual_memory (NDArray): The memory (as it is represented in the env).
             schedule_step (int): The vaccine production schedule step.
             n_counterfactuals (int): The number of counterfactuals to generate.
 
         Returns:
             list[tuple[NDArray, NDArray, int, float, NDArray, NDArray]]: The generated counterfactual transitions, a list of (state, memory, action, reward, new_state, new_memory) tuples.
         """
-        ...
+        transitions = []
+        if not schedule_step == self.max_steps - 1:
+            for _ in range(n_counterfactuals):
+                # Generate counterfactual memory (clip to ensure non-negative)
+                cf_memory = actual_memory
+                assert distribution in [
+                    "normal",
+                    "uniform",
+                ], "Invalid distribution type"
+                if distribution == "normal":
+                    cf_memory = (
+                        np.random.normal(memory, magnitude).round().astype(np.float32)
+                    )
+                elif distribution == "uniform":
+                    cf_memory = (
+                        np.random.uniform(memory - magnitude, memory + magnitude)
+                        .round()
+                        .astype(np.float32)
+                    )
+                cf_memory = np.clip(cf_memory, a_min=0, a_max=None)
+
+                # Get the transition using the counterfactual memory
+                new_state, new_memory, reward, _ = self.get_transition(
+                    actual_state, cf_memory, action, schedule_step
+                )
+                new_memory = self.get_transformed_memory(new_memory)
+                new_state = self.normalize_state(new_state)
+
+                # Store the counterfactual experience
+                transitions.append(
+                    (state, cf_memory, action, reward, new_state, new_memory)
+                )
+
+        return transitions
 
     def step(self, action: int | NDArray) -> tuple[NDArray, float, bool, bool, dict]:
         """

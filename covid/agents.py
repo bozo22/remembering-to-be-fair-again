@@ -281,7 +281,7 @@ class SAC(Agent):
             buffer_size=memory_capacity,
             learning_rate=learning_rate,
             # gamma=args.gamma,
-            tau=0.0000005,
+            tau=0.000001,
             ent_coef=0.000,
             # target_entropy=0.0,
             # use_sde=True,
