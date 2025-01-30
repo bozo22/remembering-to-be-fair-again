@@ -10,6 +10,8 @@ from argparse import Namespace
 from gym.spaces import Discrete, Box
 from env import CovidSEIREnv
 from agents import Agent, DQN, SAC, Random
+import pickle
+
 
 def set_seed(seed: int, env: CovidSEIREnv) -> None:
     """Set the random seed for reproducibility.
@@ -27,6 +29,7 @@ def set_seed(seed: int, env: CovidSEIREnv) -> None:
     except AttributeError:
         pass
 
+
 def run(
     k: int,
     max_ep_len: int,
@@ -34,7 +37,7 @@ def run(
     device: torch.device | str,
     args: Namespace,
     seed=42,
-) -> tuple[list, list]:
+) -> tuple[list, list, list]:
     """Run the training loop.
 
     Args:
@@ -46,11 +49,12 @@ def run(
         seed (int, optional): Random seed. Defaults to 42.
 
     Returns:
-        tuple[list, list]: List of rewards and list of infected counts."""
+        tuple[list, list]: List of rewards, list of infected counts and list of memories.
+    """
     # Suppose at each step we produce 50,000 vaccines for 10 steps
     # vaccine_schedule = [1_000] * max_steps
     # approximate vaccine production schedule from https://www.ifpma.org/news/as-covid-19-vaccine-output-estimated-to-reach-over-12-billion-by-year-end-and-24-billion-by-mid-2022-innovative-vaccine-manufacturers-renew-commitment-to-support-g20-efforts-to-address-remaining-barr/
-    vaccine_schedule = (np.arange(0, max_ep_len) ** 2 * 0.08) * 3_000_000
+    vaccine_schedule = (np.arange(1, max_ep_len + 1) ** 2 * 0.08) * 3_000_000
     # vaccine_schedule = [1_000_000_000 / max_ep_len] * max_ep_len
     infected_records = np.ones((args.episodes, max_ep_len, k))
     init_state_0 = [0.99, 0.01, 0.0, 0.0]
@@ -64,7 +68,7 @@ def run(
     sigma = 0.2
 
     env = CovidSEIREnv(
-        render_mode=None,
+        render_mode="human",
         state_mode=args.state_mode,
         k=k,
         population=[700_000_000, 200_000_000, 100_000_000],
@@ -120,14 +124,16 @@ def run(
     episodes = args.episodes
     reward_list = []
     infected_list = []
+    memory_list = []
     all_rewards = np.zeros((episodes, max_ep_len))
     reward_buffer = deque(maxlen=100)
     loss_buffer = deque(maxlen=100)
 
     for i in (t := tqdm(range(episodes))):
         obs, info = env.reset()
-        state = info["state"]
-        memory = info["memory"]
+        state = info["state"].copy()
+        memory = info["memory"].copy()
+        step = 0
 
         while True:
             # Store step for CF update
@@ -136,8 +142,8 @@ def run(
             # Take step
             action = agent.choose_action(obs)
             next_obs, reward, done, _, info = env.step(action)
-            next_state = info["state"]
-            next_memory = info["memory"]
+            next_state = info["state"].copy()
+            next_memory = info["memory"].copy()
 
             # Store actual experience
             agent.store_transition(
@@ -153,7 +159,7 @@ def run(
                     agent.store_transition(*transition)
 
             # Learn
-            if i % 5 == 0:
+            if step % 10 == 0:
                 loss = agent.learn()
                 loss_buffer.append(loss)
             if done:
@@ -163,6 +169,7 @@ def run(
             obs = next_obs
             state = next_state
             memory = next_memory
+            step += 1
 
         # Update epsilon
         if type(agent) == DQN and agent.epsilon > 0.01:
@@ -175,6 +182,7 @@ def run(
         ep_reward = 0
         curr_step = 0
         ep_infected = 0
+        ep_memory = np.zeros_like(memory)
 
         while True:
             # Take step
@@ -194,11 +202,15 @@ def run(
             state = next_state
             memory = next_memory
             if done:
+                ep_memory = memory
                 break
-            env.render()
+            if (i + 1) % 350 == 0:
+                print(action)
+                env.render()
 
         reward_list.append(ep_reward)
         infected_list.append(ep_infected)
+        memory_list.append(ep_memory)
         reward_buffer.append(ep_reward)
 
         # Set tqdm description
@@ -209,16 +221,22 @@ def run(
             description += f" | Epsilon: {agent.epsilon:.2f}"
         if type(agent) == DQN:
             description += f" | LR: {agent.optimizer.param_groups[0]['lr']:.7f}"
+        if type(agent) == SAC:
+            description += f" | Buffer: {agent.model.replay_buffer.size():,}"
         t.set_description(description)
         t.refresh()
 
     env.close()
 
-    return reward_list, infected_list
+    return reward_list, infected_list, memory_list
 
 
 def save_data(
-    num_exps: int, reward_list_all: list, infected_list_all: list, args: Namespace
+    num_exps: int,
+    reward_list_all: list,
+    infected_list_all: list,
+    memory_list_all: list,
+    args: Namespace,
 ) -> None:
     """Save the training curves to a CSV file.
 
@@ -226,10 +244,11 @@ def save_data(
         num_exps (int): Number of experiments.
         reward_list_all (list): List of rewards for each experiment.
         infected_list_all (list): List of infected counts for each experiment.
+        memory_list_all (list): List of final step memories for each experiment.
         args (Namespace): Arguments.
     """
 
-    name = args.agent_type.upper() + " " + args.state_mode.capitalize()
+    name = args.state_mode.capitalize()
     if args.counterfactual:
         name = f"FairQCM ({name})"
     if args.agent_type == "random":
@@ -240,6 +259,7 @@ def save_data(
         name = f"NoVax"
     rewards_dataset_path = f"../datasets/covid/{name}_reward.csv"
     infected_dataset_path = f"../datasets/covid/{name}_infected.csv"
+    memory_dataset_path = f"../datasets/covid/{name}_memory.pkl"
 
     with open(rewards_dataset_path, "w", newline="") as csv_file:
         csv_writer = csv.writer(csv_file)
@@ -251,6 +271,9 @@ def save_data(
         for i in range(num_exps):
             csv_writer.writerow(infected_list_all[i])
 
+    if name == "Full":
+        memory_list_all_a = np.array(memory_list_all)
+        pickle.dump(memory_list_all_a, open(memory_dataset_path, "wb"))
 
 
 if __name__ == "__main__":
@@ -362,6 +385,14 @@ if __name__ == "__main__":
         required=False,
         help="Disable vaccines\n",
     )
+    prs.add_argument(
+        "-device",
+        dest="device",
+        type=str,
+        default="cpu",
+        required=False,
+        help="Device (cpu or cuda)\n",
+    )
     args = prs.parse_args()
 
     # reward_t, donut_t, rewards_to_plot, infected_records = run(
@@ -374,22 +405,24 @@ if __name__ == "__main__":
     num_exps = args.num_exps
     reward_list = []
     infected_list = []
-    memory_capacity = 10_000 * (args.num_counterfactuals if args.counterfactual else 1)
-    device = "cuda" if torch.cuda.is_available() else "cpu"
+    memory_list = []
+    memory_capacity = 50_000 * (args.num_counterfactuals if args.counterfactual else 1)
+    device = args.device
     for i in range(num_exps):
         print(f"Experiment {i+1}/{num_exps}")
         experiment_seed = seed + i + 1
-        reward_t, infected_t = run(
+        reward_t, infected_t, memory_t = run(
             k=3,
             max_ep_len=24,
             memory_capacity=memory_capacity,
             device=device,
             args=args,
-            seed = experiment_seed,
+            seed=experiment_seed,
         )
         reward_list.append(reward_t)
         infected_list.append(infected_t)
-    save_data(num_exps, reward_list, infected_list, args)
+        memory_list.append(memory_t)
+    save_data(num_exps, reward_list, infected_list, memory_list, args)
 
     # print(infected_records[-1][-1])
     # k = 3

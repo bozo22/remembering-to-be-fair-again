@@ -4,6 +4,7 @@ import matplotlib
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
 import argparse
+import pickle
 
 matplotlib.use("Agg")
 
@@ -11,15 +12,11 @@ matplotlib.use("Agg")
 def plot_data(env, ax, smooth, root, data_type="reward"):
     avg_stds = []
     for filename in sorted(os.listdir(f"{root}/{env}")):
-        if not filename.endswith(f"{data_type}.csv"):
-            continue
-
         # Load data from file:
         data = np.genfromtxt(f"{root}/{env}/" + filename, delimiter=",")
         data = data[:,:500]
         name = filename.split(".")[0].split("_")[0]
-
-        # Smooth data
+                    # Smooth data
         if data.ndim == 1:
             data = data.reshape(1, -1)
         exps, vals = data.shape
@@ -28,6 +25,7 @@ def plot_data(env, ax, smooth, root, data_type="reward"):
             # .repeat(smooth, axis=2)
             .reshape(exps, -1)
         )
+
 
         avg_std = data.std(axis=0).mean()
         avg_stds.append((name, avg_std))
@@ -57,16 +55,18 @@ def create_plots(env, smooth, root):
         ax.set_ylabel("Accumulated Relaxed DP")
 
     elif env == "covid":
-        _, axs = plt.subplots(1, 2, figsize=(8, 4), layout="tight")
+        _, axs = plt.subplots(1, 3, figsize=(12, 4), layout="tight")
         plot_data(env, axs[0], smooth, root, data_type="reward")
         plot_data(env, axs[1], smooth, root, data_type="infected")
+        plot_data(env, axs[2], smooth, root, data_type="memory")
 
         for ax in axs:
             ax.legend()
-            ax.set_xlabel("Number of Episodes")
+            ax.set_xlabel("Number of episodes")
 
-        axs[0].set_ylabel("Cumulative Reward")
-        axs[1].set_ylabel("Number of Infected people")
+        axs[0].set_ylabel("Cumulative reward")
+        axs[1].set_ylabel("Number of infected people")
+        axs[2].set_ylabel("% of vaccines allocated")
         axs[1].ticklabel_format(useOffset=False, style="plain")
         axs[1].yaxis.set_major_formatter(ticker.StrMethodFormatter("{x:,.0f}"))
 
