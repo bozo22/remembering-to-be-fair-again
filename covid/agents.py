@@ -3,6 +3,8 @@ import torch.nn as nn
 import numpy as np
 from numpy.typing import ArrayLike, NDArray
 from stable_baselines3 import SAC as SB3SAC
+from stable_baselines3.common.noise import NormalActionNoise
+from stable_baselines3.her.her_replay_buffer import HerReplayBuffer
 from policies import MLPPolicy
 from argparse import Namespace
 from abc import ABC, abstractmethod
@@ -269,21 +271,29 @@ class SAC(Agent):
         self.env = env
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.batch_size = args.batch_size
-        # policy_kwargs = dict(activation_fn=nn.ReLU, net_arch=[32, 32])
+        policy_kwargs = dict(activation_fn=nn.ReLU, net_arch=[64, 32, 16], n_critics=2)
         self.model = SB3SAC(
             "MlpPolicy",
             env,
             verbose=0,
-            # policy_kwargs=policy_kwargs,
+            policy_kwargs=policy_kwargs,
             device=device,
             buffer_size=memory_capacity,
             learning_rate=learning_rate,
-            target_update_interval=args.q_network_iterations,
+            # gamma=args.gamma,
+            tau=0.0000005,
+            ent_coef=0.000,
+            # target_entropy=0.0,
+            # use_sde=True,
+            # action_noise=NormalActionNoise(0, 0.1),
+            # replay_buffer_class=HerReplayBuffer,
         )
         self.model._setup_learn(env.max_steps * args.episodes)
 
     def choose_action(self, obs: NDArray, greedy: bool = False) -> NDArray:
-        return self.model.predict(obs, deterministic=greedy)[0]
+        self.model.policy.set_training_mode(False)
+        with torch.no_grad():
+            return self.model.predict(obs, deterministic=greedy)[0]
 
     def learn(self) -> None:
         self.model.train(gradient_steps=1, batch_size=self.batch_size)
@@ -304,7 +314,6 @@ class SAC(Agent):
         reward_a = np.array([reward])
         done_a = np.array([False])
         self.model.replay_buffer.add(obs, next_obs, action_a, reward_a, done_a, [{}])
-        pass
 
 
 class Random(Agent):
