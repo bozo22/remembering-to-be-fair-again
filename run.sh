@@ -55,3 +55,5 @@ python plot.py --env donut --rt gini
 # python dqn-lending.py -ep 1000 -nexp 10 -sm reset
 # RNN
 # python dqn-recurrent-lending.py -ep 1000 -nexp 10 -sm rnn
+
+python plot_all.py --env donut

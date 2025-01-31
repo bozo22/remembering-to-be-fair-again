@@ -228,6 +228,7 @@ def run(num_people, max_ep_len, memory_capacity, args, seed):
             state = next_state
             memory = next_memory
 
+        # evaluation part
         if dqn.args.epsilon > 0.2:
             dqn.args.epsilon = dqn.args.epsilon * 0.999
         ep_reward = 0

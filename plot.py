@@ -60,10 +60,13 @@ def create_plots(env, rt, smooth):
     # axs[1].set_title(f"{rt} Donuts Allocated")
 
     for ax in axs:
-        ax.legend()
+        # ax.legend()
         ax.set_xlabel("Number of Episodes")
         axs[0].set_ylabel(f"Accumulated {rt} Scores")
         axs[1].set_ylabel("Number of allocated donuts")
+    # 在图形外部添加统一的图例
+    handles, labels = axs[0].get_legend_handles_labels()
+    fig.legend(handles, labels, loc='upper center', ncol=3)
 
     output_path = os.path.join("donut", f"{rt}.png")
     if not os.path.exists("donut"):
