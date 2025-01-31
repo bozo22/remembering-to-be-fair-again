@@ -16,7 +16,7 @@ python main.py -nexp $NEXP -ep $EP -sm full -agent random_cont # Random
 # python main.py -nexp $NEXP -ep $EP -sm min -bs 512 # Min
 # python main.py -nexp $NEXP -ep $EP -sm reset -bs 512 # Reset
 # python main.py -nexp $NEXP -ep $EP -sm none -bs 512 # None
-python ../create_plots.py --env covid --root ../datasets
+python ../create_plots.py --env covid --root ../datasets --filename covid
 END=`date +%s`
 RUNTIME=$((END-START))
 printf 'Runtime was %dh:%dm:%ds\n' $((RUNTIME/3600)) $((RUNTIME%3600/60)) $((RUNTIME%60))

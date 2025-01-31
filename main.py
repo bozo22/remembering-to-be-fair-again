@@ -4,8 +4,6 @@ import matplotlib
 import numpy as np
 import torch
 import torch.nn as nn
-# dat doprdele
-import pickle
 from envs.donut import Donut
 from envs.lending import Lending
 import argparse
@@ -39,6 +37,7 @@ def run(num_people, max_ep_len, memory_capacity, args, seed):
             seed=seed,
             state_mode=args.state_mode,
             p=args.p,
+            zero_memory=args.zero_memory,
         )
 
     num_actions = env.action_space.n
@@ -341,13 +340,22 @@ def main():
             "'egalitarian' for Egalitarian Welfare, "
             "or 'gini' for Gini Coefficient based Social Welfare."
     )
+    prs.add_argument(
+        "-root",
+        dest="root",
+        type=str,
+        default="datasets/",
+        required=False,
+        help="Datasets folder path.\n",
+
+    )
     args = prs.parse_args()
 
     seed = 2024
     if args.env_type == "donut":
         num_people = 5
         max_ep_len = 100
-        memory_capacity = 400 #check!
+        memory_capacity = 400
         if args.counterfactual:
             memory_capacity = 6400
         elif args.net_type == "rnn":
@@ -361,9 +369,6 @@ def main():
         if args.counterfactual:
             memory_capacity = 8000
 
-    # if args.counterfactual:
-    #     args.batch_size = args.batch_size * np.power(2, num_people)
-    #     memory_capacity *= np.power(2, num_people - 1)
 
     if args.d_param1 and args.d_param2:
         args.d_param1 = [float(x) for x in args.d_param1.split(",")]
@@ -381,10 +386,10 @@ def main():
         print(f"Experiment {i+1}/{num_exps}")
         random.seed(seed)
         np.random.seed(seed + i + 1)
-        reward_t, donut_t = run(num_people, max_ep_len, memory_capacity, args, seed + i) # what if we run lending?
+        reward_t, donut_t = run(num_people, max_ep_len, memory_capacity, args, seed + i)
         reward_list.append(reward_t)
-        donut_list.append(donut_t) # what if we run lending?
-    save_plot_avg(reward_list, donut_list, args, num_exps, num_people, max_ep_len)
+        donut_list.append(donut_t)
+    save_plot_avg(reward_list, donut_list, args, num_exps)
 
 
 def save_plot_avg(
@@ -392,8 +397,6 @@ def save_plot_avg(
     donuts_list_all,
     args,
     num_exps,
-    num_people,
-    max_ep_len,
 ):
 
     name = "Full"
@@ -405,8 +408,15 @@ def save_plot_avg(
         name = "FairQCM"
     if args.net_type == "rnn":
         name = "RNN"
-    rewards_dataset_path = f"datasets/{args.env_type}/{name}_{args.description}_reward.csv"
-    donuts_dataset_path = f"datasets/{args.env_type}/{name}_{args.description}_donuts.csv"
+    if args.zero_memory:
+        name = "NoMemory"
+    
+    if args.root == "datasets/":
+        root = f"datasets/{args.env_type}/"
+    else:
+        root = args.root
+    rewards_dataset_path = f"{root}/{name}_{args.description}_reward.csv"
+    donuts_dataset_path = f"{root}/{name}_{args.description}_donuts.csv"
 
     with open(rewards_dataset_path, "w", newline="") as csv_file:
         csv_writer = csv.writer(csv_file)
@@ -484,9 +494,9 @@ def save_plot_avg(
         title += " with Counterfactuals"
     plt.suptitle(title, fontsize=16)
     plt.savefig(
-        "./"
+        "./plots/"
         + args.env_type
-        + "/"
+        + "/individual/"
         + args.net_type
         + "-DQN"
         + args.state_mode

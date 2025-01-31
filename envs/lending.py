@@ -3,19 +3,20 @@ import random
 import numpy as np
 
 class Lending(gym.Env):
-    def __init__(self, people, episode_length, seed, state_mode = 'full',p = None):
+    def __init__(self, people, episode_length, seed, state_mode = 'full',p = None, zero_memory = False):
         self.people = people
         self.seed = seed
         self.episode_length = episode_length
         self.action_space = gym.spaces.Discrete(self.people)
         self.state_mode = state_mode
         self.observation_space = gym.spaces.MultiBinary(np.power(2, self.people), seed=self.seed)
+        self.zero_memory = zero_memory
 
-        self.default_credit = [4, 4, 7, 7] # 4 people, 2 subgroups
+        self.default_credit = [4, 4, 7, 7] 
         self.credit = self.default_credit.copy()
 
-        self.loans = [0 for _ in range(2)] # 2 subgroups
-        self.memory = [0 for _ in range(2)] # 2 subgroups
+        self.loans = [0 for _ in range(2)] 
+        self.memory = [0 for _ in range(2)]
         self.success = self.episode_length
 
         self.curr_episode = 0
@@ -49,19 +50,19 @@ class Lending(gym.Env):
         # possible actions are 0, 1, 2, 3
         self.curr_episode += 1
         done = False
-        wrong_action = not self.last_obs[action] # check if person applied for loan
+        wrong_action = not self.last_obs[action]
         obs = self.last_obs.copy()
 
         if self.curr_episode >= self.episode_length:
             done = True
         subg = 0
-        if action > 1: # hard coded for 2 subgroups of size two each
+        if action > 1: 
             subg = 1
  
         if not wrong_action:
             self.loans[subg] += 1
-            # update memory
-            # self.memory[subg] += 1
+            if not self.zero_memory:
+                self.memory[subg] += 1
             repayment = random.random()
             if repayment <= ((self.credit[action] + 2)/10):
                 self.success += 1
@@ -82,18 +83,18 @@ class Lending(gym.Env):
 
         obs = self.last_obs
 
-        # memory update
-        # if self.state_mode == "reset":
-        #     mn = min(self.memory)
-        #     for i in range(2):
-        #         self.memory[i] = self.memory[i] - mn
+        if not self.zero_memory:
+            if self.state_mode == "reset":
+                mn = min(self.memory)
+                for i in range(2):
+                    self.memory[i] = self.memory[i] - mn
 
-        # elif self.state_mode == "equal":
-        #     mn = min(self.memory)
-        #     mx = max(self.memory)
-        #     if mn == mx:
-        #         for i in range(2):
-        #             self.memory[i] = self.memory[i] - mn
+            elif self.state_mode == "equal":
+                mn = min(self.memory)
+                mx = max(self.memory)
+                if mn == mx:
+                    for i in range(2):
+                        self.memory[i] = self.memory[i] - mn
 
         out_memory = self.binary_state(self.memory.copy(), self.episode_length + 1)
         out_success = self.binary_state([self.success], (self.episode_length + 1) * 2)
