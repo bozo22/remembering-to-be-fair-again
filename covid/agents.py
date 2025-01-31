@@ -1,16 +1,13 @@
 import torch
 import torch.nn as nn
 import numpy as np
-from numpy.typing import ArrayLike, NDArray
+from numpy.typing import NDArray
 from stable_baselines3 import SAC as SB3SAC
-from stable_baselines3.common.noise import NormalActionNoise
-from stable_baselines3.her.her_replay_buffer import HerReplayBuffer
 from policies import MLPPolicy
 from argparse import Namespace
 from abc import ABC, abstractmethod
 from env import CovidSEIREnv
 from utils import ReplayMemory
-import gym
 
 
 class Agent(ABC):

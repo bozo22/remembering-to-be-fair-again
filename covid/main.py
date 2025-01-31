@@ -11,6 +11,9 @@ from gym.spaces import Discrete, Box
 from env import CovidSEIREnv
 from agents import Agent, DQN, SAC, Random
 import pickle
+import warnings
+
+warnings.filterwarnings("ignore")  # Suppress stable_baselines3 gym wrapper warnings
 
 
 def set_seed(seed: int, env: CovidSEIREnv) -> None:
@@ -217,9 +220,6 @@ def run(
                 )
                 ep_memory = utility_vaccines
                 break
-            if (i + 1) % 500 == 0:
-                print(action)
-                env.render()
 
         reward_list.append(ep_reward)
         infected_list.append(ep_infected)
@@ -270,9 +270,9 @@ def save_data(
         name = "Random"
     if args.novax:
         name = f"NoVax"
-    rewards_dataset_path = f"../datasets/covid/{name}_reward.csv"
-    infected_dataset_path = f"../datasets/covid/{name}_infected.csv"
-    memory_dataset_path = f"../datasets/covid/{name}_memory.pkl"
+    rewards_dataset_path = f"./datasets/covid/{name}_reward.csv"
+    infected_dataset_path = f"./datasets/covid/{name}_infected.csv"
+    memory_dataset_path = f"./datasets/covid/{name}_memory.pkl"
 
     with open(rewards_dataset_path, "w", newline="") as csv_file:
         csv_writer = csv.writer(csv_file)

@@ -8,7 +8,8 @@ import pickle
 
 matplotlib.use("Agg")
 
-def plot_data(env, ax, smooth, root, data_type="reward", std = True):
+
+def plot_data(env, ax, smooth, root, data_type="reward", std=True):
     for filename in sorted(os.listdir(f"{root}/")):
         if filename.endswith(f"{data_type}.csv"):
             data = np.genfromtxt(f"{root}/" + filename, delimiter=",")
@@ -33,7 +34,7 @@ def plot_data(env, ax, smooth, root, data_type="reward", std = True):
                     alpha=0.2,
                 )
         elif filename.endswith(f"{data_type}.pkl"):
-            data = pickle.load(open(f"{root}/{env}/" + filename, "rb"))
+            data = pickle.load(open(f"{root}/" + filename, "rb"))
             name = filename.split(".")[0].split("_")[0]
             # Smooth data
             if data.ndim == 2:
@@ -51,6 +52,7 @@ def plot_data(env, ax, smooth, root, data_type="reward", std = True):
                 )
                 xx = np.arange(0, eps, smooth)
                 ax.plot(xx, data_i.mean(axis=0), label="Region " + str(i))
+                ax.axhline(0, color="black", linestyle=(0, (5, 5)), linewidth=0.8)
                 if std:
                     ax.fill_between(
                         xx,
@@ -62,7 +64,7 @@ def plot_data(env, ax, smooth, root, data_type="reward", std = True):
             continue
 
 
-def create_plots(env, smooth, root, std=True, filename=None):  
+def create_plots(env, smooth, root, std=True, filename=None):
 
     if env == "lending":
         ax = plt.subplot(111)
@@ -104,7 +106,7 @@ def create_plots(env, smooth, root, std=True, filename=None):
     else:
         file_path = f"./plots/{env}/{env}.png"
     if env == "covid":
-        file_path = f".{file_path}"
+        file_path = f"./{file_path}"
     plt.savefig(file_path)
 
 
