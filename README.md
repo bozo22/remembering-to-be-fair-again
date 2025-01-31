@@ -50,6 +50,7 @@ Descriptions of the experiments:
 
 - `donut_constant`: Resource allocation with constant stakeholder behavior
 - `donut_dynamic`: Resource allocation with dynamic stakeholder behavior
+- `donut_gini`: Resource allocation with Gini welfare score
 - `covid_fairscm`: COVID-19 simulation, comparing FairSCM with other baselines
 
 ## Notes
