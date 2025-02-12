@@ -33,7 +33,9 @@ def plot_data(env, ax, smooth, root, data_type="reward", std=True):
                     data.mean(axis=0) + data.std(axis=0),
                     alpha=0.2,
                 )
-        elif filename.endswith(f"{data_type}.pkl"):
+        elif data_type == "utility_vaccines" and filename.endswith(
+            f"utility_vaccines.pkl"
+        ):
             data = pickle.load(open(f"{root}/" + filename, "rb"))
             name = filename.split(".")[0].split("_")[0]
             # Smooth data
@@ -60,6 +62,28 @@ def plot_data(env, ax, smooth, root, data_type="reward", std=True):
                         data_i.mean(axis=0) + data_i.std(axis=0),
                         alpha=0.2,
                     )
+        elif filename.endswith(f"{data_type}.pkl"):
+            data = pickle.load(open(f"{root}/" + filename, "rb"))
+            name = filename.split(".")[0].split("_")[0]
+            # Smooth data
+            if data.ndim == 1:
+                data = data.reshape(1, -1)
+            exps, vals = data.shape
+            data = (
+                data.reshape(exps, -1, smooth).mean(axis=2, keepdims=True)
+                # .repeat(smooth, axis=2)
+                .reshape(exps, -1)
+            )
+            # Plot
+            xx = np.arange(0, vals, smooth)
+            ax.plot(xx, data.mean(axis=0), label=name, linewidth=2)
+            if std:
+                ax.fill_between(
+                    xx,
+                    data.mean(axis=0) - data.std(axis=0),
+                    data.mean(axis=0) + data.std(axis=0),
+                    alpha=0.2,
+                )
         else:
             continue
 
@@ -77,8 +101,8 @@ def create_plots(env, smooth, root, std=True, filename=None):
         # Comparing baselines
         _, axs = plt.subplots(1, 3, figsize=(12, 4), layout="tight")
         plot_data(env, axs[0], smooth, root, data_type="reward", std=std)
-        plot_data(env, axs[1], smooth, root, data_type="infected", std=std)
-        plot_data(env, axs[2], smooth, root, data_type="memory", std=std)
+        plot_data(env, axs[1], smooth, root, data_type="new_infected", std=std)
+        plot_data(env, axs[2], smooth, root, data_type="utility_vaccines", std=std)
 
         for ax in axs:
             ax.legend()
@@ -93,7 +117,7 @@ def create_plots(env, smooth, root, std=True, filename=None):
     else:
         _, axs = plt.subplots(1, 2, figsize=(8, 4), layout="tight")
         plot_data(env, axs[0], smooth, root, data_type="reward", std=std)
-        plot_data(env, axs[1], smooth, root, data_type="donuts", std=std)
+        plot_data(env, axs[1], smooth, root, data_type="donuts_allocated", std=std)
 
         for ax in axs:
             ax.legend()

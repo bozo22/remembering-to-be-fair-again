@@ -1,333 +1,280 @@
 import gym
 import random
 import numpy as np
+from numpy.typing import NDArray
+from gym.spaces import Discrete, MultiBinary
+from itertools import product
+from core.aggregations import Aggregation, NSW
 
 
 class Donut(gym.Env):
-    def __init__(self, people, episode_length, seed, state_mode="full", p=None, distribution=None, d_param1=None, d_param2=None, zero_memory=False, reward_type='nsw'):
+    def __init__(
+        self,
+        people: int,
+        episode_length: int,
+        state_mode: str = "full",
+        seed: int = 42,
+        aggregation: Aggregation | None = None,
+        p: NDArray | None = None,
+        distribution: str | None = None,
+        binarize_memory: bool = True,
+    ) -> None:
         # full: number of donuts for each person so far as a list [d1, d2, ...]
         # compact: full but as one number
         # binary: binary state of full
         # reset: number of donuts for person i - min number of donuts
 
         self.people = people
-        self.seed = seed
         self.episode_length = episode_length
-        self.action_space = gym.spaces.Discrete(self.people)
         self.state_mode = state_mode
-        self.nsw_lambda = 1e-4
-        self.observation_space = gym.spaces.MultiBinary(
-            np.power(2, self.people), seed=self.seed
-        )
+        self.aggregation = aggregation if aggregation is not None else NSW()
         self.distribution = distribution
-        self.d_param1 = d_param1
-        self.d_param2 = d_param2
-        self.zero_memory = zero_memory
+        self.d_param1 = [50, 50, 50, 75, 25]
+        self.d_param2 = [0.9, -0.9, 0.1, 0.6, 0.5]
+        self.current_step = 0
 
-        self.memory_space = gym.spaces.MultiBinary(
-            np.power(self.episode_length + 1, self.people), seed=self.seed
-        )
-        if self.state_mode == "binary":
-            self.memory_space = gym.spaces.MultiBinary(
-                self.people * int(np.ceil(np.log2(self.episode_length + 1))),
-                seed=self.seed,
-            )
-        elif self.state_mode == "compact":
-            ans = np.power(self.episode_length + 1, self.people + 1)
-            self.memory_space = gym.spaces.MultiBinary(ans, seed=self.seed)
-        elif self.state_mode == "rnn":
-            self.observation_space = gym.spaces.MultiBinary(self.people, seed=self.seed)
+        # Action space: Discrete choice between customers
+        self.action_space = Discrete(self.people, seed=seed)
 
-        self.donuts = [0 for _ in range(people)]
-        self.memory = [0 for _ in range(people)]
+        # Observation space:
+        # No memory: Binary representation of customers at the counter -> shape (people,)
+        # With memory: Binary representation of customers at the counter + number of donuts given to each -> shape (2 * people,)
+        memory_size = people
+        if binarize_memory:
+            memory_size = self.people * int(np.ceil(np.log2(self.episode_length + 1)))
+        if state_mode == "none":
+            memory_size = 0
+        self.observation_space = Discrete(people + memory_size, seed=seed)
 
-        self.curr_episode = 0
-        self.default_obs = [1 for _ in range(self.people)]
-        self.last_obs = self.default_obs
+        # Set the initial state and memory
+        self.state = np.zeros(self.people, dtype=np.int32)
+        self.memory = np.array([0 for _ in range(people)], dtype=np.int32)
 
+        # Set customer probabilities
         if p is None:
-            
-            self.prob = [1.0 for _ in range(self.people)]
-            self.stochastic = False
+            self.prob = [0.8 for _ in range(self.people)]
         else:
             self.prob = p
-            self.stochastic = True
-        self.reset(seed)
 
-        self.reward_type = reward_type
+        # Set running values
+        self.running_values = ["donuts_allocated"]
+        self.running_values_done = []
 
-    def binary_state(self, s):
-        zero_fill = int(np.ceil(np.log2(self.episode_length)))
-        ans = ""
-        for i in s:
-            ans += bin(i)[2:].zfill(zero_fill)
+        # Reset the environment
+        self.reset()
 
-        # print(s, "***", ans)
-        int_ans = []
-        for t in ans:
-            int_ans.append(int(t))
-        return int_ans
-
-    def encode(self, s):
-        ans = 0
-        p = self.episode_length + 1
-        curr_p = 1
-        for i in range(len(s)):
-            ans += s[i] * curr_p
-            curr_p *= p
-        return ans
-    
     def logistic_prob(self, t, t_mid, steepness):
+        """Logistic probability function."""
+
         return 1.0 / (1.0 + np.exp(-steepness * (t - t_mid)))
-    
+
     def bell_prob(self, t, mu, sigma):
-        return np.exp(-((t - mu)**2) / (2.0 * sigma**2))
-    
+        """Gaussian probability function."""
+
+        return np.exp(-((t - mu) ** 2) / (2.0 * sigma**2))
+
     def uniform_interval_prob(self, t, start, end):
+        """Uniform probability function."""
+
         if t >= start and t <= end:
             prob = 1.0
         else:
             prob = 0.0
         return prob
 
-    def nsw_reward(self, obs):
-        nsw_reward = 0
-        for i in range(len(obs)):
-            nsw_reward += np.log(float(obs[i] + 1) + self.nsw_lambda)
-        return nsw_reward
+    def binarize_memory(self, memory: NDArray) -> NDArray:
+        zero_fill = int(np.ceil(np.log2(self.episode_length)))
+        ans = ""
+        for i in memory.astype(int):
+            ans += bin(i)[2:].zfill(zero_fill)
 
-    def utilitarian_reward(self, obs):
-        """Calculate the total sum of rewards across all agents."""
-        return sum(obs)
+        # print(s, "***", ans)
+        int_ans = []
+        for t in ans:
+            int_ans.append(int(t))
+        return np.array(int_ans, dtype=np.float32)
 
-    def rawlsian_reward(self, obs):
-        """Calculate the reward based on the minimum reward among all agents."""
-        return min(obs)
+    def get_transformed_memory(self, memory: NDArray | None = None) -> NDArray:
+        """Transform memory based on state mode.
 
-    def egalitarian_reward(self, obs):
-        """Calculate the reward based on minimizing the differences from the mean."""
-        mean_reward = sum(obs) / len(obs)
-        diff_sum = sum(abs(x - mean_reward) for x in obs)
-        return -diff_sum
+        Args:
+            memory (NDArray | None, optional): The memory to transform. If None, self.memory is used. Defaults to None.
 
-    def gini_coefficient(self, values):
-        """ Calculate the Gini coefficient of a list of values. Based on: http://www.statsdirect.com/help/default.htm#nonparametric_methods/gini.htm"""
-        values = np.array(values, dtype=np.float64)
-        if np.amin(values) < 0:
-            values -= np.amin(values)
-        values += 0.0000001
-        sorted_values = np.sort(values)
-        index = np.arange(1, values.size + 1)
-        n = values.size
-        gini = (np.sum((2 * index - n - 1) * sorted_values)) / (n * np.sum(sorted_values))
-        return gini
+        Returns:
+            NDArray: The transformed memory.
+        """
 
-    def gini_reward(self, obs):
-        """Calculate the reward to minimize the Gini coefficient."""
-        gini_index = self.gini_coefficient(obs)
-        return 1 - gini_index  # Higher reward for lower Gini coefficient
+        # Use self.memory if needed
+        self_memory = False
+        if memory is None:
+            memory = self.memory
+            self_memory = True
+        memory = memory.copy()
 
-    def step(self, action):
-        self.curr_episode += 1
-        obs = self.last_obs.copy()
+        # Full: no processing needed
+        if self.state_mode == "full":
+            pass
+
+        # Min: subtract min value
+        elif self.state_mode == "min":
+            memory -= np.min(memory)
+            assert memory is not None
+
+        # Reset: reset to 0 when elements are equal
+        elif self.state_mode == "reset":
+            if self_memory and np.all(memory == memory[0]):
+                self.memory = np.zeros_like(memory)
+
+        # None: no memory
+        elif self.state_mode == "none":
+            memory = np.array([])
+
+        # if memory.sum() > 0:
+        #     memory /= memory.sum()
+        #     assert memory is not None
+
+        if self.binarize_memory:
+            memory = self.binarize_memory(memory)
+
+        return memory
+
+    def get_transition(
+        self,
+        state: NDArray,
+        memory: NDArray,
+        action: int | NDArray,
+        episode: int,
+    ) -> tuple[NDArray, NDArray, float, dict]:
+        """Get a transition. Simulate the donut distribution and calculate the reward.
+
+        Args:
+            state (NDArray): The current state.
+            memory (NDArray): The current memory.
+            action (int | NDArray): The action taken.
+            episode (int): The current episode.
+
+        Returns:
+            tuple[NDArray, NDArray, float, dict]: The next state, next memory, the reward, and the info dictionary.
+        """
+
+        # Simulate donut distribution
         drop = True
-        done = (self.curr_episode >= self.episode_length)
-
-        if not self.stochastic:
+        new_memory = memory.copy()
+        if state[action]:
             drop = False
-            self.donuts[action] += 1
-            if not self.zero_memory:
-                self.memory[action] += 1
+            new_memory[action] += 1
 
-        else:
-            if self.last_obs[action]:
-                drop = False
-                self.donuts[action] += 1
-                if not self.zero_memory:
-                    self.memory[action] += 1
-
-            for i in range(self.people):
-                p = random.random()
-                if self.distribution == "logistic":
-                    self.prob[i] = self.logistic_prob(
-                        self.curr_episode,
-                        self.d_param1[i], # middle point
-                        self.d_param2[i], # steepness
-                        )
-                elif self.distribution == "bell":
-                    self.prob[i] = self.bell_prob(
-                        self.curr_episode, 
-                        self.d_param1[i], # mean
-                        self.d_param2[i], # std
-                    )
-                elif self.distribution == "uniform-interval":
-                    self.prob[i] = self.uniform_interval_prob(
-                        self.curr_episode, 
-                        self.d_param1[i],  # start
-                        self.d_param2[i],  # end
-                    )
-                if p <= self.prob[i]:
-                    obs[i] = 1
-                else:
-                    obs[i] = 0
-
-        self.last_obs = obs.copy()
-        # reward = self.nsw_reward(self.donuts.copy())
-        if self.reward_type == 'nsw':
-            reward = self.nsw_reward(self.donuts.copy())
-        elif self.reward_type == 'utilitarian':
-            reward = self.utilitarian_reward(self.donuts.copy())
-        elif self.reward_type == 'rawlsian':
-            reward = self.rawlsian_reward(self.donuts.copy())
-        elif self.reward_type == 'egalitarian':
-            reward = self.egalitarian_reward(self.donuts.copy())
-        elif self.reward_type == 'gini':
-            reward = self.gini_reward(self.donuts.copy())
-
-
-        obs = self.last_obs
-        if drop:
-            reward = 0
-
-        out_state = 0
-        pr = 1
+        # Get next state
+        new_state = np.zeros_like(state)
         for i in range(self.people):
-            if obs[i]:
-                out_state += pr
-            pr *= 2
+            p = random.random()
+            if self.distribution == "logistic":
+                self.prob[i] = self.logistic_prob(
+                    episode,
+                    self.d_param1[i],  # middle point
+                    self.d_param2[i],  # steepness
+                )
+            elif self.distribution == "bell":
+                self.prob[i] = self.bell_prob(
+                    episode,
+                    self.d_param1[i],  # mean
+                    self.d_param2[i],  # std
+                )
+            elif self.distribution == "uniform-interval":
+                self.prob[i] = self.uniform_interval_prob(
+                    episode,
+                    self.d_param1[i],  # start
+                    self.d_param2[i],  # end
+                )
+            if p <= self.prob[i]:
+                new_state[i] = 1
+            else:
+                new_state[i] = 0
 
-        out_memory = self.memory.copy()
-        if self.state_mode == "compact":
-            out_memory = self.encode(self.memory.copy())
-        elif self.state_mode == "full":
-            out_memory = self.memory.copy()
-        elif self.state_mode == "binary":
-            out_memory = self.binary_state(self.memory.copy())
-            out_state = obs.copy()
+        utilities = new_memory.copy()
+        reward = 0 if drop else self.aggregation(utilities)
 
-        elif self.state_mode == "reset-binary":
-            mn = min(self.memory)
-            for i in range(self.people):
-                self.memory[i] = self.memory[i] - mn
-            out_memory = self.binary_state(self.memory.copy())
-            out_state = obs.copy()
+        info = {}
+        info["donuts_allocated"] = 0 if drop else 1
 
-        elif self.state_mode == "equal-binary":
-            mn = min(self.memory)
-            mx = max(self.memory)
-            if mn == mx:
-                self.memory = [0 for _ in range(self.people)]
-            out_memory = self.binary_state(self.memory.copy())
-            out_state = obs.copy()
+        return new_state, new_memory, reward, info
 
-        elif self.state_mode == "deep":
-            out_memory = self.memory.copy()
-            out_state = obs.copy()
+    def get_counterfactual_transitions(
+        self,
+        state: NDArray,
+        actual_state: NDArray,
+        action: int | NDArray,
+        actual_memory: NDArray,
+        schedule_step: int,
+        n_counterfactuals: int,
+    ) -> list[tuple[NDArray, NDArray, int, float, NDArray, NDArray]]:
+        all_possible = []
+        actual_memory = actual_memory.astype(np.int32)
+        for i in range(len(actual_memory)):
+            tmp = []
+            ed = min(self.episode_length, actual_memory[i] + 2)
+            for j in range(actual_memory[i] + 1, ed):
+                tmp.append(j)
+            all_possible.append(tmp)
+        possible_memories = list(product(*all_possible))
 
-        elif self.state_mode == "deep-reset":
-            mn = min(self.memory)
-            for i in range(self.people):
-                self.memory[i] = self.memory[i] - mn
-            out_memory = self.memory.copy()
-            out_state = obs.copy()
+        transitions = []
+        n_counterfactuals = min(n_counterfactuals, len(possible_memories))
+        for i in range(n_counterfactuals):
+            cf_memory = np.array(list(possible_memories[i]), dtype=np.float32)
+            new_state, new_memory, reward, _ = self.get_transition(
+                actual_state, cf_memory, action, schedule_step
+            )
+            cf_memory = self.get_transformed_memory(cf_memory)
+            new_memory = self.get_transformed_memory(new_memory)
 
-        elif self.state_mode == "reset":
-            mn = min(self.memory)
-            for i in range(self.people):
-                self.memory[i] = self.memory[i] - mn
-            out_memory = self.encode(self.memory.copy())
-        elif self.state_mode == "equal-reset":
-            mn = min(self.memory)
-            mx = max(self.memory)
-            if mn == mx:
-                self.memory = [0 for _ in range(self.people)]
-            out_memory = self.encode(self.memory.copy())
-        elif self.state_mode == "rnn":
-            out_memory = []
-            out_state = obs.copy()
-            return out_state, reward, done, {}
-        else:
-            print("Unknown State Mode")
-        return out_state, out_memory, reward, done, {}
+            transitions.append(
+                (state, cf_memory, action, reward, new_state, new_memory)
+            )
 
-    def reset(self, seed=None):
-        self.donuts = [0 for _ in range(self.people)]
-        self.memory = [0 for _ in range(self.people)]
-        self.curr_episode = 0
+        return transitions
 
-        if seed is not None:
-            self.seed = seed
-            random.seed(self.seed)
+    def step(self, action: int) -> tuple[NDArray, float, bool, bool, dict]:
+        self.current_step += 1
+        state = self.state
+        memory = self.memory
 
-        self.last_obs = self.default_obs
-        if self.stochastic:
-            for i in range(self.people):
-                p = random.random()
-                if p <= self.prob[i]:
-                    self.last_obs[i] = 1
-                else:
-                    self.last_obs[i] = 0
-        obs = self.last_obs.copy()
-        out_state = 0
-        pr = 1
+        new_state, new_memory, reward, info = self.get_transition(
+            state, memory, action, self.current_step
+        )
+
+        done = self.current_step >= self.episode_length
+        self.state = new_state
+        self.memory = new_memory
+
+        new_memory = self.get_transformed_memory()
+        obs = np.concatenate((new_state, new_memory))
+        info["state"] = new_state.copy()
+        info["memory"] = new_memory.copy()
+
+        return obs, reward, done, False, info
+
+    def reset(
+        self, *, seed: int | None = None, options: dict | None = None
+    ) -> tuple[NDArray, dict]:
+
+        self.memory = np.zeros(self.people, dtype=np.float32)
+        self.state = np.zeros(self.people, dtype=np.float32)
+        self.current_step = 0
+
         for i in range(self.people):
-            if obs[i]:
-                out_state += pr
-            pr *= 2
+            p = random.random()
+            if p <= self.prob[i]:
+                self.state[i] = 1
+            else:
+                self.state[i] = 0
 
-        out_memory = self.memory.copy()
-        if self.state_mode == "compact":
-            out_memory = self.encode(self.memory.copy())
-        elif self.state_mode == "full":
-            out_memory = self.memory.copy()
-        elif self.state_mode == "binary":
-            out_memory = self.binary_state(self.memory.copy())
-            out_state = obs.copy()
+        memory = self.get_transformed_memory()
+        obs = np.concatenate((self.state, memory))
+        info = {
+            "state": self.state.copy(),
+            "memory": memory.copy(),
+            "donuts_allocated": 0,
+        }
 
-        elif self.state_mode == "reset-binary":
-            mn = min(self.memory)
-            for i in range(self.people):
-                self.memory[i] = self.memory[i] - mn
-            out_memory = self.binary_state(self.memory.copy())
-            out_state = obs.copy()
-
-        elif self.state_mode == "equal-binary":
-            mn = min(self.memory)
-            mx = max(self.memory)
-            if mn == mx:
-                self.memory = [0 for _ in range(self.people)]
-            out_memory = self.binary_state(self.memory.copy())
-            out_state = obs.copy()
-
-        elif self.state_mode == "deep":
-            out_memory = self.memory.copy()
-            out_state = obs.copy()
-
-        elif self.state_mode == "deep-reset":
-            mn = min(self.memory)
-            for i in range(self.people):
-                self.memory[i] = self.memory[i] - mn
-            out_memory = self.memory.copy()
-            out_state = obs.copy()
-
-        elif self.state_mode == "reset":
-            mn = min(self.memory)
-            for i in range(self.people):
-                self.memory[i] = self.memory[i] - mn
-            out_memory = self.encode(self.memory.copy())
-        elif self.state_mode == "equal-reset":
-            mn = min(self.memory)
-            mx = max(self.memory)
-            if mn == mx:
-                self.memory = [0 for _ in range(self.people)]
-            out_memory = self.encode(self.memory.copy())
-        elif self.state_mode == "rnn":
-            out_memory = []
-            out_state = obs.copy()
-            return out_state
-        else:
-            print("Unknown State Mode")
-        return out_state, out_memory
-
-
-    
+        return obs, info

@@ -3,6 +3,7 @@ from gym.spaces import Discrete, Box
 import numpy as np
 from itertools import product
 from numpy.typing import ArrayLike, NDArray
+from core.aggregations import Aggregation, NSW
 
 
 class CovidSEIREnv(gym.Env):
@@ -51,6 +52,7 @@ class CovidSEIREnv(gym.Env):
         normalize_obs: bool = False,
         novax: bool = False,
         continuous_actions: bool = False,
+        aggregation: Aggregation | None = None,
     ) -> None:
         super(CovidSEIREnv, self).__init__()
 
@@ -62,6 +64,9 @@ class CovidSEIREnv(gym.Env):
 
         # Number of regions
         self.k = k
+
+        # Aggregation function
+        self.aggregation = aggregation if aggregation is not None else NSW()
 
         # Handle population
         if population is None:
@@ -144,13 +149,16 @@ class CovidSEIREnv(gym.Env):
         self.novax = novax
         self.current_step = 0
 
-        # Make it so it stores the previous states
         self.memory = np.zeros((self.k,), dtype=np.float32)
         self.init_states = (
             np.repeat(np.array([0.8, 0.1, 0.1, 0.0])[np.newaxis, :], self.k, axis=0)
             if init_states is None
             else init_states
         )
+
+        # Set running values
+        self.running_values = ["new_infected"]
+        self.running_values_done = ["utility_vaccines"]
 
         self.reset()
 
@@ -209,7 +217,7 @@ class CovidSEIREnv(gym.Env):
         return state / np.sum(self.population) if self.normalize_obs else state
 
     def get_reward(
-        self, state: NDArray, memory: NDArray, new_exposed: NDArray
+        self, state: NDArray, memory: NDArray, new_exposed: NDArray, info: dict
     ) -> float:
         """Get the reward.
 
@@ -217,6 +225,10 @@ class CovidSEIREnv(gym.Env):
             state (NDArray): The state.
             memory (NDArray): The memory.
             new_infected (NDArray): # of newly exposed people since last step.
+            info (dict): Dictionary of running values.
+
+        Returns:
+            float: The reward.
         """
 
         # Utility
@@ -228,8 +240,12 @@ class CovidSEIREnv(gym.Env):
         )
         utility = utility_exposed + 0.04 * utility_vaccines
 
-        # Aggregation: Rawlsian
-        reward = utility.min()
+        # Save utilities
+        info["utility_exposed"] = utility_exposed
+        info["utility_vaccines"] = utility_vaccines
+
+        # Aggregation
+        reward = self.aggregation(utility)
 
         return reward
 
@@ -316,7 +332,7 @@ class CovidSEIREnv(gym.Env):
         E_new = np.zeros(self.k, dtype=np.float32)
         I_new = np.zeros(self.k, dtype=np.float32)
         R_new = np.zeros(self.k, dtype=np.float32)
-        newly_infected = np.zeros(self.k, dtype=np.float32)
+        new_infected = np.zeros(self.k, dtype=np.float32)
         newly_exposed = np.zeros(self.k, dtype=np.float32)
 
         for i in range(self.k):
@@ -337,7 +353,7 @@ class CovidSEIREnv(gym.Env):
             E_new[i] = E_i + dE
             I_new[i] = I_i + dI
             R_new[i] = R_i + dR
-            newly_infected[i] = sigma_i * E_i
+            new_infected[i] = sigma_i * E_i
             newly_exposed[i] = beta_i * S_i * I_i / pop_i
 
         # Ensure fractions stay in [0, population]
@@ -359,7 +375,8 @@ class CovidSEIREnv(gym.Env):
         new_memory = memory + used_vaccines
 
         # -- 4. Reward: e.g., negative sum of suscepted fractions across all k regions --
-        reward = self.get_reward(new_state, new_memory, newly_exposed)
+        info = {}
+        reward = self.get_reward(new_state, new_memory, newly_exposed, info)
         # reward = -np.abs(np.array([1.0, 0.0, 0.0]) - action).sum()
         # reward = -np.abs(susceptible / self.population.sum() - action).sum()
         # reward = -newly_exposed.sum() / self.population.sum()
@@ -367,10 +384,8 @@ class CovidSEIREnv(gym.Env):
         # reward = -newly_exposed.sum() / self.population.sum()
 
         # Info dictionary for debugging
-        info = {
-            "new_infected": np.sum(newly_infected),
-            "vaccines_allocated": allocation,
-        }
+        info["new_infected"] = np.sum(new_infected)
+        info["vaccines_allocated"] = allocation
 
         return new_state, new_memory, reward, info
 
@@ -379,7 +394,6 @@ class CovidSEIREnv(gym.Env):
         state: NDArray,
         actual_state: NDArray,
         action: int | NDArray,
-        memory: NDArray,
         actual_memory: NDArray,
         schedule_step: int,
         n_counterfactuals: int,
@@ -392,7 +406,6 @@ class CovidSEIREnv(gym.Env):
             state (NDArray): The state (as the agent sees it).
             actual_state (NDArray): The state (as it is represented in the env).
             action (int): The action.
-            memory (NDArray): The memory (as the agent sees it).
             actual_memory (NDArray): The memory (as it is represented in the env).
             schedule_step (int): The vaccine production schedule step.
             n_counterfactuals (int): The number of counterfactuals to generate.
@@ -411,11 +424,15 @@ class CovidSEIREnv(gym.Env):
                 ], "Invalid distribution type"
                 if distribution == "normal":
                     cf_memory = (
-                        np.random.normal(memory, magnitude).round().astype(np.float32)
+                        np.random.normal(actual_memory, magnitude)
+                        .round()
+                        .astype(np.float32)
                     )
                 elif distribution == "uniform":
                     cf_memory = (
-                        np.random.uniform(memory - magnitude, memory + magnitude)
+                        np.random.uniform(
+                            actual_memory - magnitude, actual_memory + magnitude
+                        )
                         .round()
                         .astype(np.float32)
                     )
@@ -425,6 +442,7 @@ class CovidSEIREnv(gym.Env):
                 new_state, new_memory, reward, _ = self.get_transition(
                     actual_state, cf_memory, action, schedule_step
                 )
+                cf_memory = self.get_transformed_memory(cf_memory)
                 new_memory = self.get_transformed_memory(new_memory)
                 new_state = self.normalize_state(new_state)
 
@@ -510,7 +528,13 @@ class CovidSEIREnv(gym.Env):
             state = self.normalize_state(state)
 
         # Save separate state and memory
-        info = {"state": state, "memory": memory}
+        info = {
+            "state": state,
+            "memory": memory,
+            "new_infected": 0,
+            "utility_vaccines": 0,
+            "utility_exposed": 0,
+        }
 
         # Concatenate state and memory for observation
         obs = np.concatenate((state, memory))
