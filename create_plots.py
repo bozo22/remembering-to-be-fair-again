@@ -38,6 +38,8 @@ def plot_data(env, ax, smooth, root, data_type="reward", std=True):
         ):
             data = pickle.load(open(f"{root}/" + filename, "rb"))
             name = filename.split(".")[0].split("_")[0]
+            if name != "Full":
+                continue
             # Smooth data
             if data.ndim == 2:
                 data = data.reshape(1, data.shape[0], data.shape[1])

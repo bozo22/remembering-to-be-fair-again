@@ -201,7 +201,7 @@ class SAC(Agent):
         net_arch: list[int],
     ):
         self.env = env
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.device = device
         self.batch_size = args.batch_size
         policy_kwargs = dict(activation_fn=nn.ReLU, net_arch=net_arch, n_critics=2)
         self.model = SB3SAC(

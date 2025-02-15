@@ -193,7 +193,9 @@ def run(
         memory = info["memory"].copy()
         step = 0
         hidden = (
-            None if args.net_type == "linear" else torch.zeros([1, args.hidden_size])
+            None
+            if args.net_type == "linear"
+            else torch.zeros([1, args.hidden_size], device=device)
         )
 
         while True:
@@ -252,7 +254,9 @@ def run(
         for key in env.running_values:
             running_values[key].append(info[key])
         hidden = (
-            None if args.net_type == "linear" else torch.zeros([1, args.hidden_size])
+            None
+            if args.net_type == "linear"
+            else torch.zeros([1, args.hidden_size], device=device)
         )
 
         while True:
@@ -325,10 +329,14 @@ def save_data(
     if args.agent_type == "random_cont":
         name = "Random"
     if args.novax:
-        name = f"NoVax"
+        name = "NoVax"
     if args.net_type == "rnn":
-        name = f"RNN"
-    rewards_dataset_path = f"./datasets/{args.env_type}/{name}_reward.csv"
+        name = "RNN"
+    if args.root == "datasets/":
+        root = f"datasets/{args.env_type}/"
+    else:
+        root = args.root
+    rewards_dataset_path = f"{root}/{name}_reward.csv"
     with open(rewards_dataset_path, "w", newline="") as csv_file:
         csv_writer = csv.writer(csv_file)
         for i in range(num_exps):
@@ -337,7 +345,7 @@ def save_data(
     keys = running_values_list_all[0].keys()
     for key in keys:
         arr = np.array([running_values_list_all[i][key] for i in range(num_exps)])
-        pickle.dump(arr, open(f"./datasets/{args.env_type}/{name}_{key}.pkl", "wb"))
+        pickle.dump(arr, open(f"{root}/{name}_{key}.pkl", "wb"))
 
 
 if __name__ == "__main__":
@@ -563,6 +571,11 @@ if __name__ == "__main__":
     learn_freq = 5
     reward_list = []
     running_values_list = []
+    if args.d_param1 and args.d_param2:
+        args.d_param1 = [float(x) for x in args.d_param1.split(",")]
+        args.d_param2 = [float(x) for x in args.d_param2.split(",")]
+    if args.p:
+        args.p = [float(x) for x in args.p.split(",")]
     if args.env_type == "donut":
         max_ep_len = 100
         memory_capacity = 400

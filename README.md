@@ -5,13 +5,13 @@ Code for the paper _"FairQCM and Beyond: Testing Memory-Augmented Fairness in No
 ## Repository Structure
 
 ```
-FACT <- Code for the donut and lending experiments, run scripts
+FACT <- Code for the experiments, run scripts
 │   
-└───covid <- Code for the COVID-19 experiments
+└───core <- Core modules
 │   
 └───datasets <- Data for plots
 │   
-└───envs <- Donut and lending Gym environments
+└───envs <- Donut, lending and covid Gym environments
 │   
 └───plots <- Plots
 ```
