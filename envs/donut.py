@@ -18,6 +18,7 @@ class Donut(gym.Env):
         p: NDArray | None = None,
         distribution: str | None = None,
         binarize_memory: bool = True,
+        dynamic_prob: bool = False,
     ) -> None:
         # full: number of donuts for each person so far as a list [d1, d2, ...]
         # compact: full but as one number
@@ -32,6 +33,12 @@ class Donut(gym.Env):
         self.d_param1 = [50, 50, 50, 75, 25]
         self.d_param2 = [0.9, -0.9, 0.1, 0.6, 0.5]
         self.current_step = 0
+
+        self.dynamic_prob = dynamic_prob
+        if self.dynamic_prob:
+            print("Dynamic probability is enabled.")
+        self.prob_tracker = {}
+        self.initial_prob = {}
 
         # Action space: Discrete choice between customers
         self.action_space = Discrete(self.people, seed=seed)
@@ -55,6 +62,9 @@ class Donut(gym.Env):
             self.prob = [0.8 for _ in range(self.people)]
         else:
             self.prob = p
+
+        for i in range(self.people):
+            self.initial_prob[i] = self.prob[i]
 
         # Set running values
         self.running_values = ["donuts_allocated"]
@@ -164,6 +174,20 @@ class Donut(gym.Env):
             drop = False
             new_memory[action] += 1
 
+
+            if self.dynamic_prob:
+                self.prob[action] = min(self.prob[action] + 0.1, 1.0) 
+                self.prob_tracker[action] = 0  # Reset timer for recovery
+
+        # Update probability tracker (increment counters for all tracked people)
+        for i in list(self.prob_tracker.keys()):
+            self.prob_tracker[i] += 1  # Increment step counter
+
+            # If 2 steps have passed, restore probability to initial value
+            if self.prob_tracker[i] > 2:
+                self.prob[i] = self.initial_prob[i]  # Restore probability
+                del self.prob_tracker[i] 
+
         # Get next state
         new_state = np.zeros_like(state)
         for i in range(self.people):
@@ -208,8 +232,10 @@ class Donut(gym.Env):
         schedule_step: int,
         n_counterfactuals: int,
     ) -> list[tuple[NDArray, NDArray, int, float, NDArray, NDArray]]:
+        
         all_possible = []
         actual_memory = actual_memory.astype(np.int32)
+
         for i in range(len(actual_memory)):
             tmp = []
             ed = min(self.episode_length, actual_memory[i] + 2)
@@ -218,19 +244,50 @@ class Donut(gym.Env):
             all_possible.append(tmp)
         possible_memories = list(product(*all_possible))
 
+        original_prob = self.prob.copy()
+        original_tracker = self.prob_tracker.copy()
+        
         transitions = []
         n_counterfactuals = min(n_counterfactuals, len(possible_memories))
+        
         for i in range(n_counterfactuals):
+            
             cf_memory = np.array(list(possible_memories[i]), dtype=np.float32)
+            
+            if self.dynamic_prob:
+                temp_prob = original_prob.copy()  
+                temp_tracker = original_tracker.copy()
+
+                for j in range(self.people):
+                    if cf_memory[j] > actual_memory[j]:  
+                        temp_prob[j] = min(temp_prob[j] + 0.1, 1.0)
+                        temp_tracker[j] = 0 
+                
+                for j in list(temp_tracker.keys()):
+                    temp_tracker[j] += 1
+                    if temp_tracker[j] > 2:
+                        temp_prob[j] = self.initial_prob[j]
+                        del temp_tracker[j]
+                backup_prob = self.prob.copy()
+                self.prob = temp_prob.copy()
+                
+
+
             new_state, new_memory, reward, _ = self.get_transition(
                 actual_state, cf_memory, action, schedule_step
             )
+            if self.dynamic_prob:
+                self.prob = backup_prob.copy()
+
             cf_memory = self.get_transformed_memory(cf_memory)
             new_memory = self.get_transformed_memory(new_memory)
 
             transitions.append(
                 (state, cf_memory, action, reward, new_state, new_memory)
             )
+        
+        self.prob = original_prob.copy()
+        self.prob_tracker = original_tracker.copy()
 
         return transitions
 

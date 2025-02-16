@@ -124,6 +124,7 @@ def run(
             state_mode=args.state_mode,
             p=args.p,
             distribution=args.distribution,
+            dynamic_prob=args.dynamic,
             aggregation=aggregation,
         )
     elif args.env_type == "lending":
@@ -557,6 +558,14 @@ if __name__ == "__main__":
         default="datasets/",
         required=False,
         help="Datasets folder path.\n",
+    )
+    prs.add_argument(
+        "-dynamic",
+        dest="dynamic",
+        type=bool,
+        default=False,
+        required=False,
+        help="Dynamic probability adjustment\n",
     )
     args = prs.parse_args()
 
