@@ -34,7 +34,6 @@ class CovidSEIREnv(gym.Env):
 
     metadata = {"render.modes": ["human"]}
 
-    # TODO: Model death rate and try to make death proportions similar to each other
     def __init__(
         self,
         render_mode: str | None = None,

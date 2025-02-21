@@ -1,6 +1,6 @@
 # FACT
 
-Code for the paper _"FairQCM and Beyond: Testing Memory-Augmented Fairness in Non-Markovian Settings"_.
+Code for the paper _"Remembering to Be Fair Again: Reproducing Non-Markovian Fairness in Sequential Decision Making"_.
 
 ## Repository Structure
 
