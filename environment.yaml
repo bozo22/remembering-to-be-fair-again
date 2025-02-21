@@ -1,4 +1,4 @@
-name: fact
+name: rtbfa
 channels:
   - defaults
   - conda-forge

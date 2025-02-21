@@ -1,11 +1,11 @@
-# FACT
+# Remembering to Be Fair Again
 
 Code for the paper _"Remembering to Be Fair Again: Reproducing Non-Markovian Fairness in Sequential Decision Making"_.
 
 ## Repository Structure
 
 ```
-FACT <- Code for the experiments, run scripts
+Remembering to Be Fair Again <- Code for the experiments, run scripts
 │   
 └───core <- Core modules
 │   
@@ -21,7 +21,7 @@ FACT <- Code for the experiments, run scripts
 To set up the required environment, run the following commands:
 ```sh
 conda env create -f environment.yaml
-conda activate fact
+conda activate rtbfa
 ```
 
 ## Reproducing Results
