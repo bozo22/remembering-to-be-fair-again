@@ -1,4 +1,4 @@
-# Remembering to Be Fair Again
+# Remembering to Be Fair Again [[TMLR 2025](https://openreview.net/pdf?id=H6DtMcZf5s)]
 
 Code for the paper _"Remembering to Be Fair Again: Reproducing Non-Markovian Fairness in Sequential Decision Making"_.
 
@@ -58,3 +58,17 @@ Descriptions of the experiments:
 - The environment setup should be completed before running any experiments.
 - If you encounter any issues, verify that all dependencies in `environment.yaml` are installed correctly.
 
+
+## Citation
+```
+@article{
+nagy2025remembering,
+title={Remembering to Be Fair Again: Reproducing Non-Markovian Fairness in Sequential Decision Making},
+author={Domonkos Nagy and Lohithsai Yadala Chanchu and Krystof Bobek and Xin Zhou and Jacobus Smit},
+journal={Transactions on Machine Learning Research},
+issn={2835-8856},
+year={2025},
+url={https://openreview.net/forum?id=H6DtMcZf5s},
+note={Reproducibility Certification}
+}
+```
