@@ -61,14 +61,13 @@ Descriptions of the experiments:
 
 ## Citation
 ```
-@article{
-nagy2025remembering,
-title={Remembering to Be Fair Again: Reproducing Non-Markovian Fairness in Sequential Decision Making},
-author={Domonkos Nagy and Lohithsai Yadala Chanchu and Krystof Bobek and Xin Zhou and Jacobus Smit},
-journal={Transactions on Machine Learning Research},
-issn={2835-8856},
-year={2025},
-url={https://openreview.net/forum?id=H6DtMcZf5s},
-note={Reproducibility Certification}
+@article{nagy2025remembering,
+  title={Remembering to Be Fair Again: Reproducing Non-Markovian Fairness in Sequential Decision Making},
+  author={Domonkos Nagy and Lohithsai Yadala Chanchu and Krystof Bobek and Xin Zhou and Jacobus Smit},
+  journal={Transactions on Machine Learning Research},
+  issn={2835-8856},
+  year={2025},
+  url={https://openreview.net/forum?id=H6DtMcZf5s},
+  note={Reproducibility Certification}
 }
 ```
